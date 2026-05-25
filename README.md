@@ -68,7 +68,32 @@ Run:
 rocas sync
 rocas watch
 rocas watch --debounce 5000
+rocas plugin
 ```
+
+## Roblox Studio Plugin
+
+After running `rocas sync`, generate a local Studio plugin from the generated lock files:
+
+```bash
+rocas plugin
+```
+
+By default, rocas writes the generated `.luau` file directly into your Roblox Studio local Plugins folder. Use `--output <path>` when you want to write it somewhere else.
+
+In Studio, the `rocas` toolbar opens an asset browser UI where you can search synced assets, preview image assets, inspect asset IDs, and click `Insert` to place references in the current place.
+
+The plugin also watches `Script`, `LocalScript`, and `ModuleScript` source changes inside Studio. This works with tools like Rojo and Argon after they sync file changes into Studio, and the asset browser updates each asset's usage count when matching asset IDs, paths, or file names appear in script source.
+
+`Insert` creates the most useful Studio instance for each asset type:
+
+| Asset type | Insert target |
+|------------|---------------|
+| Decal/Image | Selected `BasePart` as a `Decal`, or `StarterGui` as an `ImageLabel` when no part is selected |
+| Audio | `SoundService` as a `Sound` |
+| Model/Mesh | `Workspace` through `InsertService:LoadAsset` |
+| Animation | `ReplicatedStorage/rocas Animations` as an `Animation` |
+| Video | `StarterGui` as a `VideoFrame` |
 
 ## Configuration
 

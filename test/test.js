@@ -6,6 +6,14 @@ const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { EXT_TO_ASSET_TYPE } = require("../src/sync");
 const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
+const {
+	buildStudioPluginManifest,
+	defaultStudioPluginOutputPath,
+	generateStudioPlugin,
+	luaLongString,
+	resolveStudioPluginOutputPath,
+	robloxStudioPluginsDir,
+} = require("../src/studio-plugin");
 
 // --- Config parsing ---
 console.log("Testing config parsing...");
@@ -214,5 +222,36 @@ assert.strictEqual(assetMap.bySourcePath[particlePath], "rbxassetid://777");
 assert.strictEqual(assetMap.byRelativePath["Texture/Particle02.png"], "rbxassetid://888");
 assert.strictEqual(assetMap.groups.images["Texture/Particle01.png"], "rbxassetid://777");
 console.log("  asset map generation OK");
+
+// --- Studio plugin generation ---
+console.log("Testing Studio plugin generation...");
+
+const studioManifest = buildStudioPluginManifest(mapConfig, tempDir);
+assert.strictEqual(studioManifest.generatedBy, "rocas");
+assert.strictEqual(studioManifest.assets.length, 2);
+assert.strictEqual(studioManifest.assets[0].group, "images");
+assert.strictEqual(studioManifest.assets[0].assetType, "Decal");
+assert.strictEqual(studioManifest.assets[0].assetId, "rbxassetid://777");
+assert.strictEqual(studioManifest.assets[0].sourcePath, "assets/textures/Texture/Particle01.png");
+
+const pluginSource = generateStudioPlugin(studioManifest);
+assert(pluginSource.includes("plugin:CreateToolbar(\"rocas\")"));
+assert(pluginSource.includes("InsertService:LoadAsset"));
+assert(pluginSource.includes("GetPropertyChangedSignal(\"Source\")"));
+assert(pluginSource.includes("game.DescendantAdded:Connect(watchScript)"));
+assert(pluginSource.includes("Texture/Particle01.png"));
+assert(pluginSource.includes("rbxassetid://888"));
+assert.strictEqual(luaLongString("plain"), "[[plain]]");
+assert.strictEqual(luaLongString("has ]] marker"), "[=[has ]] marker]=]");
+assert.strictEqual(
+	robloxStudioPluginsDir({ LOCALAPPDATA: "C:\\Users\\Example\\AppData\\Local" }, "win32"),
+	path.join("C:\\Users\\Example\\AppData\\Local", "Roblox", "Plugins"),
+);
+assert.strictEqual(
+	defaultStudioPluginOutputPath(tempDir, { LOCALAPPDATA: "C:\\Users\\Example\\AppData\\Local" }, "win32"),
+	path.join("C:\\Users\\Example\\AppData\\Local", "Roblox", "Plugins", "rocas-studio-plugin.luau"),
+);
+assert.strictEqual(resolveStudioPluginOutputPath(tempDir, "custom/plugin.luau"), path.resolve(tempDir, "custom/plugin.luau"));
+console.log("  Studio plugin generation OK");
 
 console.log("\nAll tests passed!");
