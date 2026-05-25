@@ -1,15 +1,15 @@
 {
-  "name": "roblox-open-cloud-sync",
+  "name": "rocas",
   "version": "0.1.2",
-  "description": "Sync assets (images, sounds, meshes, animations, videos) to Roblox via Open Cloud API",
+  "description": "Roblox Open Cloud Asset Sync",
   "main": "src/index.js",
   "bin": {
-    "rocs": "bin/rocs.js"
+    "rocas": "bin/rocas.js"
   },
   "scripts": {
     "test": "node test/test.js"
   },
-  "keywords": ["roblox", "open-cloud", "assets", "sync", "roblox-ts"],
+  "keywords": ["rocas", "roblox", "open-cloud", "assets", "sync", "roblox-ts"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -17,6 +17,7 @@
   "files": [
     "src/",
     "bin/",
+    "rocas.toml.example",
     "README.md",
     "LICENSE"
   ]

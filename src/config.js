@@ -17,9 +17,9 @@ function loadEnv(cwd = process.cwd()) {
  * TOML ファイルから設定を読み込む（軽量パーサー）
  */
 function loadConfig(cwd = process.cwd()) {
-	const configPath = path.join(cwd, "rocs.toml");
+	const configPath = path.join(cwd, "rocas.toml");
 	if (!existsSync(configPath)) {
-		throw new Error("rocs.toml が見つかりません");
+		throw new Error("rocas.toml not found");
 	}
 	const toml = readFileSync(configPath, "utf8");
 	return parseConfig(toml);
@@ -97,7 +97,7 @@ function parseConfig(toml) {
 	}
 
 	if (!config.creator || !config.creator.id) {
-		throw new Error("rocs.toml: [creator] に id が設定されていません");
+		throw new Error("rocas.toml: [creator] id is required");
 	}
 	if (!config.creator.type) {
 		config.creator.type = "user";

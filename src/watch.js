@@ -6,7 +6,7 @@ const DEFAULT_DEBOUNCE = 10000;
 
 /**
  * アセットディレクトリを監視して変更時に syncAll を再実行する
- * @param {object} config - rocs.toml のパース結果
+ * @param {object} config - rocas.toml parse result
  * @param {string} apiKey - Roblox Open Cloud API キー
  * @param {{ debounce?: number }} opts
  */

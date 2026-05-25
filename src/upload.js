@@ -56,7 +56,7 @@ async function uploadAsset(filePath, assetType, apiKey, creator) {
 	const fileName = path.basename(filePath);
 	const displayName = path.basename(filePath, path.extname(filePath));
 	const fileBuffer = readFileSync(filePath);
-	const boundary = "----RocsBoundary" + Date.now();
+	const boundary = "----RocasBoundary" + Date.now();
 
 	const metadata = JSON.stringify({
 		assetType,

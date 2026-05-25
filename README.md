@@ -1,42 +1,44 @@
-# rocs — Roblox Open Cloud Asset Sync
+# rocas - Roblox Open Cloud Asset Sync
 
-Sync images, sounds, meshes, animations, and videos to Roblox via the [Open Cloud Assets API](https://create.roblox.com/docs/cloud/guides/usage-assets). Works with both **pure Luau** and **roblox-ts** projects.
+Sync images, sounds, meshes, animations, and videos to Roblox through the [Open Cloud Assets API](https://create.roblox.com/docs/cloud/guides/usage-assets). rocas works with both pure Luau and roblox-ts projects.
 
 ## Features
 
-- **All asset types** — images, sounds, meshes, animations, videos
-- **Hash-based change detection** — only uploads changed files (lock file tracking)
-- **Recursive directory scanning** — nested folder structures become nested objects
-- **Luau native** — `--!strict` type-annotated `.luau` output for pure Luau projects
-- **roblox-ts compatible** — generates `.luau` + `.d.ts` pairs (same format as Asphalt)
-- **Zero dependencies** — pure Node.js (>=18), no external packages
-- **CLI + library** — use `rocs sync` or `require("roblox-open-cloud-sync")` programmatically
+- **All asset types** - images, sounds, meshes, animations, videos
+- **Hash-based change detection** - uploads only changed files by using lock files
+- **Recursive directory scanning** - nested folders become nested generated objects
+- **Luau native** - can generate `--!strict` type-annotated `.luau` output
+- **roblox-ts compatible** - generates `.luau` + `.d.ts` pairs in an Asphalt-like shape
+- **Zero dependencies** - pure Node.js (>=18), no external packages
+- **CLI + library** - use `rocas sync` or `require("rocas")`
 
 ## Supported Formats
 
 | Type | Extensions | Roblox assetType |
-|------|-----------|-----------------|
+|------|------------|------------------|
 | Image | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | Decal |
 | Audio | `.mp3` `.ogg` `.wav` `.flac` | Audio |
 | Mesh | `.fbx` `.glb` `.gltf` `.obj` | Model |
 | Animation | `.rbxm` `.rbxmx` | Animation |
 | Video | `.mp4` `.mov` | Video |
 
-## インストール
+## Install
+
+Install globally:
 
 ```bash
-npm install -g github:Plumvery/rocs
+npm install -g github:Plumvery/rocas
 ```
 
-プロジェクトの devDependencies に追加する場合:
+Or add it to a project:
 
 ```bash
-npm install --save-dev github:Plumvery/rocs
+npm install --save-dev github:Plumvery/rocas
 ```
 
 ## Quick Start
 
-Create `rocs.toml` in your project root:
+Create `rocas.toml` in your project root:
 
 ```toml
 [creator]
@@ -56,21 +58,21 @@ output = "src/shared/sounds"
 
 Set your API key in `.env`:
 
-```
-ROCS_API_KEY="your-open-cloud-api-key"
+```env
+ROCAS_API_KEY="your-open-cloud-api-key"
 ```
 
 Run:
 
 ```bash
-rocs sync          # 1回同期
-rocs watch         # ファイル変更を監視して自動同期
-rocs watch --debounce 5000  # デバウンス間隔を変更 (デフォルト: 10000ms)
+rocas sync
+rocas watch
+rocas watch --debounce 5000
 ```
 
 ## Configuration
 
-### `rocs.toml`
+### `rocas.toml`
 
 ```toml
 [creator]
@@ -78,24 +80,24 @@ type = "user"       # "user" or "group"
 id = 123456789      # Roblox User ID or Group ID
 
 [[sync]]
-name = "images"           # Group name (used for lock file: images.lock.json)
-path = "assets/images"    # Directory to scan (recursive)
-output = "src/shared/images"  # Generates images.luau (+ images.d.ts for roblox-ts)
-# assetType = "Decal"     # Optional: force asset type (auto-detected by default)
-# format = "roblox-ts"    # "roblox-ts" (default) or "luau"
-# stripExtensions = false  # Remove file extensions from keys (default: false)
+name = "images"              # Group name, used for images.lock.json
+path = "assets/images"       # Directory to scan recursively
+output = "src/shared/images" # Generates images.luau and, by default, images.d.ts
+# assetType = "Decal"        # Optional: force asset type
+# format = "roblox-ts"       # "roblox-ts" (default) or "luau"
+# stripExtensions = false    # Remove file extensions from generated keys
 ```
 
-### `format` option
+### `format`
 
 | Value | Output | Description |
 |-------|--------|-------------|
-| `"roblox-ts"` (default) | `.luau` + `.d.ts` | roblox-ts / Asphalt compatible |
-| `"luau"` | `.luau` only | `--!strict` with type annotations, no `.d.ts` |
+| `"roblox-ts"` (default) | `.luau` + `.d.ts` | roblox-ts / Asphalt-compatible output |
+| `"luau"` | `.luau` only | `--!strict` output with type annotations |
 
-### `stripExtensions` option
+### `stripExtensions`
 
-When `true`, file extensions are removed from keys:
+When `true`, file extensions are removed from generated keys:
 
 ```lua
 -- stripExtensions = false (default)
@@ -107,21 +109,21 @@ images.ui.button
 
 ### Environment Variables
 
-- `ROCS_API_KEY` — Roblox Open Cloud API key
+- `ROCAS_API_KEY` - Roblox Open Cloud API key
 
-Set in `.env` or export in your shell.
+Set it in `.env` or export it in your shell.
 
 ## Generated Output
 
-For a directory structure like:
+For a directory structure like this:
 
-```
+```text
 assets/images/
-├── ui/
-│   ├── button.png
-│   └── icon.png
-└── fx/
-    └── spark.png
+  ui/
+    button.png
+    icon.png
+  fx/
+    spark.png
 ```
 
 ### Luau format (`format = "luau"`, `stripExtensions = true`)
@@ -130,7 +132,7 @@ Generates `images.luau`:
 
 ```lua
 --!strict
--- This file is auto-generated by rocs. Do not edit manually.
+-- This file is auto-generated by rocas. Do not edit manually.
 
 type ImagesType = {
 	fx: {
@@ -168,7 +170,7 @@ imageLabel.Image = images.ui.button
 Generates `images.luau`:
 
 ```lua
--- This file is auto-generated by rocs. Do not edit manually.
+-- This file is auto-generated by rocas. Do not edit manually.
 local images = {
 	fx = {
 		["spark.png"] = "rbxassetid://12345678",
@@ -185,7 +187,7 @@ return images
 And `images.d.ts`:
 
 ```typescript
-// This file is auto-generated by rocs. Do not edit manually.
+// This file is auto-generated by rocas. Do not edit manually.
 declare const images: {
 	fx: {
 		"spark.png": string
@@ -210,11 +212,11 @@ imageLabel.Image = images.ui["button.png"];
 ## Programmatic Usage
 
 ```javascript
-const { loadConfig, loadEnv, syncAll } = require("roblox-open-cloud-sync");
+const { loadConfig, loadEnv, syncAll } = require("rocas");
 
 loadEnv();
 const config = loadConfig();
-await syncAll(config, process.env.ROCS_API_KEY);
+await syncAll(config, process.env.ROCAS_API_KEY);
 ```
 
 ## License

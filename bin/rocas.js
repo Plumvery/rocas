@@ -5,18 +5,18 @@ const { syncAll } = require("../src/sync");
 const { watchAll } = require("../src/watch");
 
 const HELP = `
-rocs - Roblox Open Cloud Asset Sync
+rocas - Roblox Open Cloud Asset Sync
 
 Usage:
-  rocs sync       Sync all assets defined in rocs.toml
-  rocs watch      Watch for file changes and sync automatically
-  rocs help       Show this help message
+  rocas sync       Sync all assets defined in rocas.toml
+  rocas watch      Watch for file changes and sync automatically
+  rocas help       Show this help message
 
 Options (watch):
   --debounce <ms> Debounce interval in ms (default: 10000)
 
 Environment:
-  ROCS_API_KEY    Roblox Open Cloud API key (or set in .env)
+  ROCAS_API_KEY    Roblox Open Cloud API key (or set in .env)
 `;
 
 async function main() {
@@ -35,9 +35,9 @@ async function main() {
 
 	loadEnv();
 
-	const apiKey = process.env.ROCS_API_KEY;
+	const apiKey = process.env.ROCAS_API_KEY;
 	if (!apiKey) {
-		console.error("API key not found. Set ROCS_API_KEY in .env or environment.");
+		console.error("API key not found. Set ROCAS_API_KEY in .env or environment.");
 		process.exit(1);
 	}
 

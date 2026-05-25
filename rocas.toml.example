@@ -1,14 +1,14 @@
-# rocs - Roblox Open Cloud Asset Sync
-# Copy this file to rocs.toml and edit to match your project.
+# rocas - Roblox Open Cloud Asset Sync
+# Copy this file to rocas.toml and edit it to match your project.
 
 [creator]
 type = "user"       # "user" or "group"
 id = 123456789      # Your Roblox User ID or Group ID
 
 # Each [[sync]] section defines an asset group to sync.
-# Assets are uploaded via Roblox Open Cloud API.
+# Assets are uploaded via the Roblox Open Cloud API.
 # The asset type is auto-detected from file extensions.
-# output generates a .luau + .d.ts pair (e.g. "src/shared/images" → images.luau + images.d.ts)
+# output generates a .luau + .d.ts pair by default.
 
 [[sync]]
 name = "images"
@@ -36,7 +36,7 @@ path = "assets/videos"
 output = "src/shared/videos"
 
 # --- Options ---
-# format: "roblox-ts" (default) generates .luau + .d.ts pair
+# format: "roblox-ts" (default) generates a .luau + .d.ts pair
 #         "luau" generates .luau only with --!strict and type annotations
 # stripExtensions: true removes file extensions from keys
 #   e.g. images.ui.button instead of images.ui["button.png"]
