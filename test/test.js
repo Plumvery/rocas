@@ -1,7 +1,11 @@
 const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { EXT_TO_ASSET_TYPE } = require("../src/sync");
+const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
 
 // --- Config parsing ---
 console.log("Testing config parsing...");
@@ -180,5 +184,35 @@ assert.strictEqual(EXT_TO_ASSET_TYPE[".mp4"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".mov"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".xyz"], undefined);
 console.log("  extension mapping OK");
+
+// --- Asset map from lock files ---
+console.log("Testing asset map generation...");
+
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocs-test-"));
+const textureDir = path.join(tempDir, "assets", "textures");
+fs.mkdirSync(path.join(textureDir, "Texture"), { recursive: true });
+fs.writeFileSync(
+	path.join(textureDir, "images.lock.json"),
+	JSON.stringify(
+		{
+			"Texture/Particle01.png": { assetId: "777", hash: "abc" },
+			"Texture/Particle02.png": { assetId: "rbxassetid://888", hash: "def" },
+		},
+		null,
+		2,
+	),
+);
+
+const mapConfig = {
+	creator: { type: "user", id: 12345 },
+	sync: [{ name: "images", path: "assets/textures", output: "src/images" }],
+};
+const assetMap = buildAssetMap(mapConfig, tempDir);
+const particlePath = path.resolve(textureDir, "Texture", "Particle01.png").replace(/\\/g, "/");
+assert.strictEqual(lockPathForSync(mapConfig.sync[0], tempDir), path.join(textureDir, "images.lock.json"));
+assert.strictEqual(assetMap.bySourcePath[particlePath], "rbxassetid://777");
+assert.strictEqual(assetMap.byRelativePath["Texture/Particle02.png"], "rbxassetid://888");
+assert.strictEqual(assetMap.groups.images["Texture/Particle01.png"], "rbxassetid://777");
+console.log("  asset map generation OK");
 
 console.log("\nAll tests passed!");
