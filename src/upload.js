@@ -2,6 +2,30 @@ const https = require("https");
 const { readFileSync } = require("fs");
 const path = require("path");
 
+const EXT_TO_CONTENT_TYPE = {
+	".png": "image/png",
+	".jpg": "image/jpeg",
+	".jpeg": "image/jpeg",
+	".bmp": "image/bmp",
+	".tga": "image/tga",
+	".mp3": "audio/mpeg",
+	".ogg": "audio/ogg",
+	".wav": "audio/wav",
+	".flac": "audio/flac",
+	".fbx": "model/fbx",
+	".glb": "model/gltf-binary",
+	".gltf": "model/gltf+json",
+	".obj": "model/obj",
+	".rbxm": "application/xml",
+	".rbxmx": "application/xml",
+	".mp4": "video/mp4",
+	".mov": "video/quicktime",
+};
+
+function contentTypeFor(filePath) {
+	return EXT_TO_CONTENT_TYPE[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
+
 /**
  * HTTPS リクエスト（Promise ラッパー）
  */
@@ -76,7 +100,7 @@ async function uploadAsset(filePath, assetType, apiKey, creator) {
 				metadata +
 				`\r\n--${boundary}\r\n` +
 				`Content-Disposition: form-data; name="fileContent"; filename="${fileName}"\r\n` +
-				`Content-Type: application/octet-stream\r\n\r\n`,
+				`Content-Type: ${contentTypeFor(filePath)}\r\n\r\n`,
 		),
 		fileBuffer,
 		Buffer.from(`\r\n--${boundary}--\r\n`),
@@ -108,4 +132,4 @@ async function uploadAsset(filePath, assetType, apiKey, creator) {
 	return result.response.assetId;
 }
 
-module.exports = { uploadAsset, httpsRequest, pollOperation };
+module.exports = { contentTypeFor, uploadAsset, httpsRequest, pollOperation };

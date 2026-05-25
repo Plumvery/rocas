@@ -6,6 +6,7 @@ const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("../src/formats");
 const { EXT_TO_ASSET_TYPE, syncOne } = require("../src/sync");
+const { contentTypeFor } = require("../src/upload");
 const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
 const {
 	buildStudioPluginManifest,
@@ -204,6 +205,15 @@ assert.strictEqual(EXT_TO_ASSET_TYPE[".mp4"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".mov"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".xyz"], undefined);
 console.log("  extension mapping OK");
+
+// --- Upload content type mapping ---
+console.log("Testing upload content type mapping...");
+
+assert.strictEqual(contentTypeFor("texture.png"), "image/png");
+assert.strictEqual(contentTypeFor("mesh.fbx"), "model/fbx");
+assert.strictEqual(contentTypeFor("scene.glb"), "model/gltf-binary");
+assert.strictEqual(contentTypeFor("unknown.bin"), "application/octet-stream");
+console.log("  upload content type mapping OK");
 
 // --- Asset map from lock files ---
 console.log("Testing asset map generation...");
