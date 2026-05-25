@@ -4,7 +4,8 @@ const os = require("os");
 const path = require("path");
 const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
-const { EXT_TO_ASSET_TYPE } = require("../src/sync");
+const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("../src/formats");
+const { EXT_TO_ASSET_TYPE, syncOne } = require("../src/sync");
 const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
 const {
 	buildStudioPluginManifest,
@@ -180,6 +181,17 @@ assert.strictEqual(config3.sync[0].format, "luau");
 assert.strictEqual(config3.sync[0].stripExtensions, true);
 console.log("  config format/stripExtensions OK");
 
+// --- Codegen format registry ---
+console.log("Testing codegen format registry...");
+
+assert.strictEqual(DEFAULT_CODEGEN_FORMAT, "luau");
+assert.deepStrictEqual(listCodegenFormats(), ["luau", "roblox-ts"]);
+assert.strictEqual(resolveCodegenFormat().name, "luau");
+assert.strictEqual(resolveCodegenFormat("roblox-ts").name, "roblox-ts");
+assert.throws(() => resolveCodegenFormat("unknown"), /Unsupported sync format: unknown/);
+assert.throws(() => registerCodegenFormat({ name: "broken" }), /name and render function/);
+console.log("  codegen format registry OK");
+
 // --- Extension mapping ---
 console.log("Testing extension mapping...");
 
@@ -254,4 +266,76 @@ assert.strictEqual(
 assert.strictEqual(resolveStudioPluginOutputPath(tempDir, "custom/plugin.luau"), path.resolve(tempDir, "custom/plugin.luau"));
 console.log("  Studio plugin generation OK");
 
-console.log("\nAll tests passed!");
+(async () => {
+	// --- syncOne codegen defaults ---
+	console.log("Testing syncOne codegen defaults...");
+
+	const codegenDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-codegen-test-"));
+	const imageDir = path.join(codegenDir, "assets", "images");
+	fs.mkdirSync(imageDir, { recursive: true });
+	fs.writeFileSync(
+		path.join(imageDir, "images.lock.json"),
+		JSON.stringify({ "ui/button.png": { assetId: "111", hash: "abc" } }, null, 2),
+	);
+
+	await syncOne(
+		{
+			name: "images",
+			path: "assets/images",
+			output: "src/shared/images",
+			stripExtensions: true,
+		},
+		{ type: "user", id: 12345 },
+		"unused-api-key",
+		codegenDir,
+	);
+
+	const defaultLuauPath = path.join(codegenDir, "src", "shared", "images.luau");
+	const defaultDtsPath = path.join(codegenDir, "src", "shared", "images.d.ts");
+	const defaultLuau = fs.readFileSync(defaultLuauPath, "utf8");
+	assert(defaultLuau.includes("--!strict"));
+	assert(defaultLuau.includes("type ImagesType = {"));
+	assert(defaultLuau.includes("button: string"));
+	assert(!fs.existsSync(defaultDtsPath));
+
+	await syncOne(
+		{
+			name: "images",
+			path: "assets/images",
+			output: "src/shared/rbxts-images",
+			format: "roblox-ts",
+		},
+		{ type: "user", id: 12345 },
+		"unused-api-key",
+		codegenDir,
+	);
+
+	const robloxTsLuauPath = path.join(codegenDir, "src", "shared", "rbxts-images.luau");
+	const robloxTsDtsPath = path.join(codegenDir, "src", "shared", "rbxts-images.d.ts");
+	assert(fs.existsSync(robloxTsLuauPath));
+	assert(fs.existsSync(robloxTsDtsPath));
+	assert(!fs.readFileSync(robloxTsLuauPath, "utf8").includes("--!strict"));
+	assert(fs.readFileSync(robloxTsDtsPath, "utf8").includes("declare const images:"));
+
+	await assert.rejects(
+		() =>
+			syncOne(
+				{
+					name: "images",
+					path: "assets/images",
+					output: "src/shared/unknown",
+					format: "unknown",
+				},
+				{ type: "user", id: 12345 },
+				"unused-api-key",
+				codegenDir,
+			),
+		/Unsupported sync format: unknown/,
+	);
+
+	console.log("  syncOne codegen defaults OK");
+	console.log("\nAll tests passed!");
+})().catch((error) => {
+	console.error(error);
+	process.exit(1);
+});

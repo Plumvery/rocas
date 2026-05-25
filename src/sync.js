@@ -2,7 +2,7 @@ const { readFileSync, existsSync, writeFileSync, readdirSync, statSync, mkdirSyn
 const { createHash } = require("crypto");
 const path = require("path");
 const { uploadAsset } = require("./upload");
-const { generateLuau, generateDts } = require("./codegen");
+const { resolveCodegenFormat } = require("./formats");
 
 /**
  * 拡張子 → Roblox assetType マッピング
@@ -110,10 +110,10 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 		writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n");
 	}
 
-	// コード生成
-	// format: "luau" = .luau のみ (--!strict + 型注釈), "roblox-ts" = .luau + .d.ts (デフォルト)
+	// Code generation is handled by format modules. Luau is the default,
+	// roblox-ts is an opt-in compatibility format.
 	if (syncConfig.output && Object.keys(lock).length > 0) {
-		const format = syncConfig.format || "roblox-ts";
+		const format = resolveCodegenFormat(syncConfig.format);
 		const stripExtensions = syncConfig.stripExtensions || false;
 		const outputPath = path.resolve(cwd, syncConfig.output);
 		const outputDir = path.dirname(outputPath);
@@ -121,29 +121,25 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 
 		// output から拡張子を除去してベースパスを得る
 		const basePath = outputPath.replace(/\.(d\.ts|ts|luau)$/, "");
-		const luauPath = basePath + ".luau";
 		const varName = syncConfig.name.replace(/[^a-zA-Z0-9]/g, "_");
+		const outputs = format.render(lock, varName, { stripExtensions });
+		const outputFiles = outputs.map((output) => ({
+			path: basePath + output.extension,
+			content: output.content,
+		}));
+		let generated = false;
 
-		const luauContent = generateLuau(lock, varName, {
-			strict: format === "luau",
-			stripExtensions,
-		});
-		const existingLuau = existsSync(luauPath) ? readFileSync(luauPath, "utf8") : "";
-		if (luauContent !== existingLuau) writeFileSync(luauPath, luauContent);
-
-		if (format === "roblox-ts") {
-			const dtsPath = basePath + ".d.ts";
-			const dtsContent = generateDts(lock, varName, { stripExtensions });
-			const existingDts = existsSync(dtsPath) ? readFileSync(dtsPath, "utf8") : "";
-			if (dtsContent !== existingDts) writeFileSync(dtsPath, dtsContent);
-
-			if (luauContent !== existingLuau || dtsContent !== existingDts) {
-				console.log(`[${syncConfig.name}] generated: ${path.relative(cwd, luauPath)} + ${path.relative(cwd, dtsPath)}`);
+		for (const outputFile of outputFiles) {
+			const existingContent = existsSync(outputFile.path) ? readFileSync(outputFile.path, "utf8") : "";
+			if (outputFile.content !== existingContent) {
+				writeFileSync(outputFile.path, outputFile.content);
+				generated = true;
 			}
-		} else {
-			if (luauContent !== existingLuau) {
-				console.log(`[${syncConfig.name}] generated: ${path.relative(cwd, luauPath)}`);
-			}
+		}
+
+		if (generated) {
+			const generatedPaths = outputFiles.map((outputFile) => path.relative(cwd, outputFile.path)).join(" + ");
+			console.log(`[${syncConfig.name}] generated: ${generatedPaths}`);
 		}
 	}
 }

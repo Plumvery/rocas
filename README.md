@@ -7,8 +7,8 @@ Sync images, sounds, meshes, animations, and videos to Roblox through the [Open 
 - **All asset types** - images, sounds, meshes, animations, videos
 - **Hash-based change detection** - uploads only changed files by using lock files
 - **Recursive directory scanning** - nested folders become nested generated objects
-- **Luau native** - can generate `--!strict` type-annotated `.luau` output
-- **roblox-ts compatible** - generates `.luau` + `.d.ts` pairs in an Asphalt-like shape
+- **Luau native by default** - generates `--!strict` type-annotated `.luau` output
+- **roblox-ts compatibility format** - opt in to `.luau` + `.d.ts` pairs in an Asphalt-like shape
 - **Zero dependencies** - pure Node.js (>=18), no external packages
 - **CLI + library** - use `rocas sync` or `require("rocas")`
 
@@ -107,9 +107,9 @@ id = 123456789      # Roblox User ID or Group ID
 [[sync]]
 name = "images"              # Group name, used for images.lock.json
 path = "assets/images"       # Directory to scan recursively
-output = "src/shared/images" # Generates images.luau and, by default, images.d.ts
+output = "src/shared/images" # Generates images.luau by default
 # assetType = "Decal"        # Optional: force asset type
-# format = "roblox-ts"       # "roblox-ts" (default) or "luau"
+# format = "luau"            # "luau" (default) or "roblox-ts"
 # stripExtensions = false    # Remove file extensions from generated keys
 ```
 
@@ -117,8 +117,8 @@ output = "src/shared/images" # Generates images.luau and, by default, images.d.t
 
 | Value | Output | Description |
 |-------|--------|-------------|
-| `"roblox-ts"` (default) | `.luau` + `.d.ts` | roblox-ts / Asphalt-compatible output |
-| `"luau"` | `.luau` only | `--!strict` output with type annotations |
+| `"luau"` (default) | `.luau` only | `--!strict` output with type annotations |
+| `"roblox-ts"` | `.luau` + `.d.ts` | roblox-ts / Asphalt-compatible output |
 
 ### `stripExtensions`
 
@@ -151,7 +151,7 @@ assets/images/
     spark.png
 ```
 
-### Luau format (`format = "luau"`, `stripExtensions = true`)
+### Luau format (default, `stripExtensions = true`)
 
 Generates `images.luau`:
 
@@ -190,7 +190,7 @@ local images = require(path.to.images)
 imageLabel.Image = images.ui.button
 ```
 
-### roblox-ts format (`format = "roblox-ts"`, default)
+### roblox-ts format (`format = "roblox-ts"`)
 
 Generates `images.luau`:
 

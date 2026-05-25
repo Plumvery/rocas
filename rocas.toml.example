@@ -8,7 +8,7 @@ id = 123456789      # Your Roblox User ID or Group ID
 # Each [[sync]] section defines an asset group to sync.
 # Assets are uploaded via the Roblox Open Cloud API.
 # The asset type is auto-detected from file extensions.
-# output generates a .luau + .d.ts pair by default.
+# output generates a strict .luau file by default.
 
 [[sync]]
 name = "images"
@@ -36,18 +36,18 @@ path = "assets/videos"
 output = "src/shared/videos"
 
 # --- Options ---
-# format: "roblox-ts" (default) generates a .luau + .d.ts pair
-#         "luau" generates .luau only with --!strict and type annotations
+# format: "luau" (default) generates .luau only with --!strict and type annotations
+#         "roblox-ts" generates a .luau + .d.ts pair for roblox-ts projects
 # stripExtensions: true removes file extensions from keys
 #   e.g. images.ui.button instead of images.ui["button.png"]
 
-# Example: pure Luau project
+# Example: roblox-ts project
 # [[sync]]
 # name = "images"
 # path = "assets/images"
 # output = "src/shared/images"
-# format = "luau"
-# stripExtensions = true
+# format = "roblox-ts"
+# stripExtensions = false
 
 # You can also force a specific asset type for a group:
 # [[sync]]

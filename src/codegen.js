@@ -1,9 +1,8 @@
 /**
- * lock オブジェクトから .luau + .d.ts ペアを生成
- * Asphalt と同じ形式: .luau に実際の値、.d.ts に型定義
+ * Codegen helpers for lock objects.
  *
- * lock のキーはスラッシュ区切りの相対パス (e.g. "ui/icons/star.png")
- * → ネストされたオブジェクトに変換
+ * lock keys are slash-separated relative paths (e.g. "ui/icons/star.png")
+ * and are converted into nested objects.
  */
 
 /**

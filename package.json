@@ -9,7 +9,7 @@
   "scripts": {
     "test": "node test/test.js"
   },
-  "keywords": ["rocas", "roblox", "open-cloud", "assets", "sync", "roblox-ts"],
+  "keywords": ["rocas", "roblox", "open-cloud", "assets", "sync", "luau", "roblox-ts"],
   "license": "MIT",
   "engines": {
     "node": ">=18"
