@@ -6,6 +6,7 @@ Sync images, sounds, meshes, animations, and videos to Roblox through the [Open 
 
 - **All asset types** - images, sounds, meshes, animations, videos
 - **Hash-based change detection** - uploads only changed files by using lock files
+- **Config-aware re-sync** - re-uploads when the `rocas.toml` creator or `assetType` changes, even if the file is byte-for-byte identical
 - **Recursive directory scanning** - nested folders become nested generated objects
 - **Luau native by default** - generates `--!strict` type-annotated `.luau` output
 - **roblox-ts compatibility format** - opt in to `.luau` + `.d.ts` pairs in an Asphalt-like shape
@@ -131,6 +132,19 @@ images.ui["button.png"]
 -- stripExtensions = true
 images.ui.button
 ```
+
+## Change Detection
+
+rocas keeps a `<name>.lock.json` next to each synced directory. An asset is **skipped** only when both of these match the lock:
+
+1. the file content hash, and
+2. a fingerprint of the upload-affecting `rocas.toml` config (the `[creator]` `type`/`id` and the resolved `assetType`).
+
+So if you point `rocas.toml` at a different creator (for example, change `[creator].id` from a group to your user, or to a different account), the next `rocas sync` re-uploads every affected asset under the new creator even though the files are unchanged. Editing `output`, `format`, or `stripExtensions` only regenerates code — it never forces a re-upload.
+
+`rocas watch` also watches `rocas.toml` itself: saving a config change reloads it and triggers a sync.
+
+Lock entries written by older versions of rocas have no config fingerprint. The first sync after upgrading records the current config as the baseline **without** re-uploading (so an upgrade alone never churns asset IDs). If you need to force a full re-upload — for example, you changed the creator while still on a pre-fingerprint lock — delete the relevant `*.lock.json` and run `rocas sync`.
 
 ### Environment Variables
 
