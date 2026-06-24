@@ -5,7 +5,7 @@ const path = require("path");
 const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("../src/formats");
-const { EXT_TO_ASSET_TYPE, syncOne } = require("../src/sync");
+const { EXT_TO_ASSET_TYPE, syncOne, configFingerprint, planSyncAction, fileHash } = require("../src/sync");
 const { contentTypeFor } = require("../src/upload");
 const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
 const {
@@ -206,6 +206,27 @@ assert.strictEqual(EXT_TO_ASSET_TYPE[".mov"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".xyz"], undefined);
 console.log("  extension mapping OK");
 
+// --- Config fingerprint ---
+console.log("Testing config fingerprint...");
+
+const fpUser = configFingerprint({ type: "user", id: 12345 }, "Model");
+assert.strictEqual(configFingerprint({ type: "user", id: 12345 }, "Model"), fpUser, "same inputs → same fingerprint");
+assert.strictEqual(configFingerprint({ type: "user", id: "12345" }, "Model"), fpUser, "id type-coerced (number vs string)");
+assert.notStrictEqual(configFingerprint({ type: "user", id: 99999 }, "Model"), fpUser, "different creator id → different");
+assert.notStrictEqual(configFingerprint({ type: "group", id: 12345 }, "Model"), fpUser, "user vs group → different");
+assert.notStrictEqual(configFingerprint({ type: "user", id: 12345 }, "Decal"), fpUser, "different assetType → different");
+console.log("  config fingerprint OK");
+
+// --- Sync action planning ---
+console.log("Testing sync action planning...");
+
+assert.strictEqual(planSyncAction(undefined, "h1", "fp1"), "upload", "no cache → upload");
+assert.strictEqual(planSyncAction({ hash: "h0", config: "fp1" }, "h1", "fp1"), "upload", "content changed → upload");
+assert.strictEqual(planSyncAction({ hash: "h1", config: "fp1" }, "h1", "fp1"), "reuse", "all matching → reuse");
+assert.strictEqual(planSyncAction({ hash: "h1" }, "h1", "fp1"), "rebaseline", "legacy entry (no config) → rebaseline");
+assert.strictEqual(planSyncAction({ hash: "h1", config: "fp0" }, "h1", "fp1"), "upload", "config changed → upload");
+console.log("  sync action planning OK");
+
 // --- Upload content type mapping ---
 console.log("Testing upload content type mapping...");
 
@@ -344,6 +365,46 @@ console.log("  Studio plugin generation OK");
 	);
 
 	console.log("  syncOne codegen defaults OK");
+
+	// --- syncOne config-aware change detection (offline; no upload) ---
+	console.log("Testing syncOne config-aware change detection...");
+
+	const fpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-fp-test-"));
+	const fpAssetDir = path.join(fpDir, "assets", "images");
+	fs.mkdirSync(path.join(fpAssetDir, "ui"), { recursive: true });
+	const fpFile = path.join(fpAssetDir, "ui", "button.png");
+	fs.writeFileSync(fpFile, "button-bytes");
+	const fpHash = fileHash(fpFile);
+	const fpLockPath = path.join(fpAssetDir, "images.lock.json");
+	const fpCreator = { type: "user", id: 12345 };
+	const fpSync = { name: "images", path: "assets/images" };
+	const expectedFp = configFingerprint(fpCreator, "Decal");
+
+	// (1) reuse: hash と config が一致 → アップロードせずスキップ、ロックは据え置き
+	fs.writeFileSync(
+		fpLockPath,
+		JSON.stringify({ "ui/button.png": { assetId: "111", hash: fpHash, config: expectedFp } }, null, 2),
+	);
+	await syncOne(fpSync, fpCreator, "unused-api-key", fpDir);
+	let fpLock = JSON.parse(fs.readFileSync(fpLockPath, "utf8"));
+	assert.strictEqual(fpLock["ui/button.png"].assetId, "111", "reuse keeps assetId");
+	assert.strictEqual(fpLock["ui/button.png"].config, expectedFp, "reuse keeps config");
+
+	// (2) rebaseline: 旧ロック (config 無し) → 再アップロードせず config を記録する
+	fs.writeFileSync(fpLockPath, JSON.stringify({ "ui/button.png": { assetId: "111", hash: fpHash } }, null, 2));
+	await syncOne(fpSync, fpCreator, "unused-api-key", fpDir);
+	fpLock = JSON.parse(fs.readFileSync(fpLockPath, "utf8"));
+	assert.strictEqual(fpLock["ui/button.png"].assetId, "111", "rebaseline keeps assetId (no re-upload)");
+	assert.strictEqual(fpLock["ui/button.png"].config, expectedFp, "rebaseline records config baseline");
+	// 設定 (creator) が変わった場合に再アップロードされる判断は planSyncAction の単体テストで担保
+	// (実アップロードは Open Cloud への通信が必要なためここでは実行しない)。
+	assert.strictEqual(
+		planSyncAction(fpLock["ui/button.png"], fpHash, configFingerprint({ type: "user", id: 99999 }, "Decal")),
+		"upload",
+		"creator change after rebaseline → upload",
+	);
+	console.log("  syncOne config-aware change detection OK");
+
 	console.log("\nAll tests passed!");
 })().catch((error) => {
 	console.error(error);

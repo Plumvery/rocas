@@ -40,6 +40,44 @@ function fileHash(filePath) {
 }
 
 /**
+ * アップロード結果に影響する設定のフィンガープリント。
+ * creator (誰の所有としてアップロードするか) と assetType (アップロード時のタイプ) が
+ * 変わると、ファイル内容が同じでも別アセットとして上げ直す必要がある。これをロック
+ * エントリへ保存しておき、次回 sync 時に rocas.toml の変更 (ユーザー ID 変更など) を検知する。
+ */
+function configFingerprint(creator, assetType) {
+	const payload = JSON.stringify({
+		creatorType: creator.type,
+		creatorId: String(creator.id),
+		assetType: assetType,
+	});
+	return createHash("sha256").update(payload).digest("hex").slice(0, 16);
+}
+
+/**
+ * 既存ロックエントリ・現在のファイル内容・現在の設定から、取るべきアクションを決める。
+ * @param {object | undefined} cached - lock[key]
+ * @param {string} hash - 現在のファイル内容ハッシュ
+ * @param {string} fingerprint - 現在の設定フィンガープリント
+ * @returns {"upload" | "reuse" | "rebaseline"}
+ *   upload     - 新規 / 内容が変わった / 設定 (creator・assetType) が変わった → アップロード
+ *   reuse      - 内容も設定も一致 → スキップ
+ *   rebaseline - 内容は一致するが設定未記録の旧ロック → 再アップロードせず設定だけ記録
+ */
+function planSyncAction(cached, hash, fingerprint) {
+	if (!cached || cached.hash !== hash) {
+		return "upload";
+	}
+	if (cached.config === fingerprint) {
+		return "reuse";
+	}
+	if (cached.config === undefined) {
+		return "rebaseline";
+	}
+	return "upload";
+}
+
+/**
  * ディレクトリを再帰走査してファイル一覧を返す
  * @returns {{ filePath: string, relPath: string }[]}
  */
@@ -93,16 +131,36 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 
 		const key = relPath.replace(/\\/g, "/");
 		const hash = fileHash(filePath);
+		const fingerprint = configFingerprint(creator, assetType);
+		const cached = lock[key];
+		const action = planSyncAction(cached, hash, fingerprint);
 
-		if (lock[key]?.hash === hash) {
+		if (action === "reuse") {
 			console.log(`[${syncConfig.name}] skip: ${relPath} (unchanged)`);
 			continue;
 		}
 
-		console.log(`[${syncConfig.name}] uploading: ${relPath} ...`);
+		// 旧フォーマットのロック (設定未記録): 内容は一致しているので上げ直さず、現在の
+		// 設定だけ記録して、次回以降の rocas.toml 変更を検知できるようにする。
+		if (action === "rebaseline") {
+			console.log(`[${syncConfig.name}] skip: ${relPath} (unchanged; recording config baseline)`);
+			lock[key] = { ...cached, config: fingerprint };
+			changed = true;
+			continue;
+		}
+
+		let reason;
+		if (!cached) {
+			reason = "new";
+		} else if (cached.hash !== hash) {
+			reason = "content changed";
+		} else {
+			reason = "config changed";
+		}
+		console.log(`[${syncConfig.name}] uploading: ${relPath} (${reason}) ...`);
 		const assetId = await uploadAsset(filePath, assetType, apiKey, creator);
 		console.log(`[${syncConfig.name}] done: ${relPath} → rbxassetid://${assetId}`);
-		lock[key] = { assetId: String(assetId), hash };
+		lock[key] = { assetId: String(assetId), hash, config: fingerprint };
 		changed = true;
 	}
 
@@ -153,4 +211,4 @@ async function syncAll(config, apiKey, cwd = process.cwd()) {
 	}
 }
 
-module.exports = { syncAll, syncOne, walkDir, fileHash, EXT_TO_ASSET_TYPE };
+module.exports = { syncAll, syncOne, walkDir, fileHash, configFingerprint, planSyncAction, EXT_TO_ASSET_TYPE };
