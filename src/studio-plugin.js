@@ -1,9 +1,11 @@
-const { existsSync, readFileSync, writeFileSync, mkdirSync } = require("fs");
+const { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } = require("fs");
 const path = require("path");
-const { EXT_TO_ASSET_TYPE } = require("./sync");
+const { RobloxFile, Script } = require("rbxm-parser");
+const { EXT_TO_ASSET_TYPE, walkDir } = require("./sync");
 const { assetIdString, normalizeAssetPath } = require("./asset-map");
 
-const DEFAULT_PLUGIN_FILE_NAME = "rocas-studio-plugin.luau";
+const DEFAULT_PLUGIN_FILE_NAME = "rocas-studio-plugin.rbxm";
+const DEFAULT_MANIFEST_OUTPUT_PATH = path.join("src", "shared", "RocasManifest.luau");
 
 function inferAssetType(relPath, syncConfig) {
 	if (syncConfig.assetType) {
@@ -18,15 +20,49 @@ function fileNameFromAssetPath(assetPath) {
 	return parts[parts.length - 1] || assetPath;
 }
 
-function buildStudioPluginManifest(config, cwd = process.cwd()) {
+function sortManifestAssets(manifest) {
+	manifest.assets.sort((a, b) => {
+		const groupCompare = a.group.localeCompare(b.group);
+		if (groupCompare !== 0) return groupCompare;
+		return a.path.localeCompare(b.path);
+	});
+
+	return manifest;
+}
+
+function buildStudioPluginManifest(config, cwd = process.cwd(), options = {}) {
+	const localMode = options.local || false;
 	const manifest = {
 		generatedBy: "rocas",
-		generatedAt: new Date().toISOString(),
+		mode: localMode ? "local" : "uploaded",
 		assets: [],
 	};
 
 	for (const syncConfig of config.sync || []) {
 		const assetDir = path.resolve(cwd, syncConfig.path);
+
+		if (localMode) {
+			for (const { filePath, relPath } of walkDir(assetDir)) {
+				const assetPath = normalizeAssetPath(relPath);
+				const assetType = inferAssetType(assetPath, syncConfig);
+				if (assetType === "Unknown") {
+					continue;
+				}
+
+				manifest.assets.push({
+					group: syncConfig.name,
+					path: assetPath,
+					name: fileNameFromAssetPath(assetPath),
+					sourcePath: normalizeAssetPath(path.relative(cwd, filePath)),
+					size: statSync(filePath).size,
+					assetType,
+					source: "local",
+				});
+			}
+
+			continue;
+		}
+
 		const lockPath = path.join(assetDir, `${syncConfig.name}.lock.json`);
 
 		if (!existsSync(lockPath)) {
@@ -50,17 +86,12 @@ function buildStudioPluginManifest(config, cwd = process.cwd()) {
 				sourcePath,
 				assetId: assetIdString(entry.assetId),
 				assetType: inferAssetType(assetPath, syncConfig),
+				source: "uploaded",
 			});
 		}
 	}
 
-	manifest.assets.sort((a, b) => {
-		const groupCompare = a.group.localeCompare(b.group);
-		if (groupCompare !== 0) return groupCompare;
-		return a.path.localeCompare(b.path);
-	});
-
-	return manifest;
+	return sortManifestAssets(manifest);
 }
 
 function luaLongString(value) {
@@ -76,9 +107,69 @@ function luaLongString(value) {
 	throw new Error("Unable to encode manifest as a Lua long string");
 }
 
-function generateStudioPlugin(manifest) {
+function generateStudioPlugin() {
+	return STUDIO_PLUGIN_TEMPLATE;
+}
+
+function generateStudioPluginRbxm(source = generateStudioPlugin()) {
+	const file = new RobloxFile();
+	const script = new Script();
+	script.Name = "rocas";
+	script.Source = source;
+	script.Disabled = false;
+	file.AddRoot(script);
+	return file.WriteToBuffer();
+}
+
+function cdata(value) {
+	return `<![CDATA[${value.replace(/\]\]>/g, "]]]]><![CDATA[>")}]]>`;
+}
+
+function xmlText(value) {
+	return String(value)
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&apos;");
+}
+
+function generateStudioPluginRbxmx(source = generateStudioPlugin()) {
+	return [
+		'<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">',
+		"\t<External>null</External>",
+		"\t<External>nil</External>",
+		'\t<Item class="Script" referent="RBX726F63617353545544494F504C554749">',
+		"\t\t<Properties>",
+		`\t\t\t<ProtectedString name="Source">${cdata(source)}</ProtectedString>`,
+		'\t\t\t<bool name="Disabled">false</bool>',
+		'\t\t\t<Content name="LinkedSource"><null></null></Content>',
+		'\t\t\t<token name="RunContext">0</token>',
+		'\t\t\t<string name="ScriptGuid">{6E17590C-AD9D-4E56-9306-000000000001}</string>',
+		'\t\t\t<BinaryString name="AttributesSerialize"></BinaryString>',
+		'\t\t\t<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>',
+		'\t\t\t<bool name="DefinesCapabilities">false</bool>',
+		`\t\t\t<string name="Name">${xmlText("rocas")}</string>`,
+		'\t\t\t<int64 name="SourceAssetId">-1</int64>',
+		'\t\t\t<BinaryString name="Tags"></BinaryString>',
+		"\t\t</Properties>",
+		"\t</Item>",
+		"</roblox>",
+		"",
+	].join("\n");
+}
+
+function generateManifestModule(manifest) {
 	const manifestJson = JSON.stringify(manifest, null, 2);
-	return STUDIO_PLUGIN_TEMPLATE.replace("__ROCAS_MANIFEST_JSON__", luaLongString(manifestJson));
+	return [
+		"-- This file is auto-generated by rocas. Do not edit manually.",
+		"local HttpService = game:GetService(\"HttpService\")",
+		"-- ROCAS_MANIFEST_JSON_BEGIN",
+		`local manifestJson = ${luaLongString(manifestJson)}`,
+		"-- ROCAS_MANIFEST_JSON_END",
+		"return HttpService:JSONDecode(manifestJson)",
+		"",
+	].join("\n");
 }
 
 function robloxStudioPluginsDir(env = process.env, platform = process.platform) {
@@ -106,33 +197,66 @@ function resolveStudioPluginOutputPath(cwd = process.cwd(), outputPath) {
 	return defaultStudioPluginOutputPath(cwd);
 }
 
-function writeStudioPlugin(config, cwd = process.cwd(), outputPath) {
+function resolveManifestOutputPath(cwd = process.cwd(), outputPath) {
+	return path.resolve(cwd, outputPath || DEFAULT_MANIFEST_OUTPUT_PATH);
+}
+
+function writeStudioPlugin(config, cwd = process.cwd(), outputPath, options = {}) {
 	const resolvedOutput = resolveStudioPluginOutputPath(cwd, outputPath);
-	const manifest = buildStudioPluginManifest(config, cwd);
-	const source = generateStudioPlugin(manifest);
+	const extension = path.extname(resolvedOutput).toLowerCase();
+	const source =
+		extension === ".lua" || extension === ".luau"
+			? generateStudioPlugin()
+			: extension === ".rbxmx"
+				? generateStudioPluginRbxmx()
+				: generateStudioPluginRbxm();
 	const outputDir = path.dirname(resolvedOutput);
 
 	if (!existsSync(outputDir)) {
 		mkdirSync(outputDir, { recursive: true });
 	}
 
-	writeFileSync(resolvedOutput, source);
+	const existing = existsSync(resolvedOutput) ? readFileSync(resolvedOutput) : null;
+	const next = Buffer.isBuffer(source) ? source : Buffer.from(source, "utf8");
+	if (!existing || !existing.equals(next)) {
+		writeFileSync(resolvedOutput, source);
+	}
+
+	return resolvedOutput;
+}
+
+function writeStudioManifest(config, cwd = process.cwd(), outputPath, options = {}) {
+	const resolvedOutput = resolveManifestOutputPath(cwd, outputPath);
+	const manifest = buildStudioPluginManifest(config, cwd, options);
+	const source = generateManifestModule(manifest);
+	const outputDir = path.dirname(resolvedOutput);
+
+	if (!existsSync(outputDir)) {
+		mkdirSync(outputDir, { recursive: true });
+	}
+
+	if (!existsSync(resolvedOutput) || readFileSync(resolvedOutput, "utf8") !== source) {
+		writeFileSync(resolvedOutput, source);
+	}
+
 	return resolvedOutput;
 }
 
 const STUDIO_PLUGIN_TEMPLATE = `-- This file is auto-generated by rocas. Do not edit manually.
 -- Put it in the Roblox Studio local Plugins folder to use the asset browser.
 
-local HttpService = game:GetService("HttpService")
 local InsertService = game:GetService("InsertService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Selection = game:GetService("Selection")
 local SoundService = game:GetService("SoundService")
 local StarterGui = game:GetService("StarterGui")
+local StudioService = game:GetService("StudioService")
 local Workspace = game:GetService("Workspace")
 
-local manifest = HttpService:JSONDecode(__ROCAS_MANIFEST_JSON__)
-local assets = manifest.assets or {}
+local manifest = { generatedBy = "rocas", mode = "uploaded", assets = {} }
+local assets = {}
+local localMode = false
 
 local toolbar = plugin:CreateToolbar("rocas")
 local toggleButton = toolbar:CreateButton("Assets", "Browse rocas synced assets", "")
@@ -188,16 +312,59 @@ generatedAt.LayoutOrder = 2
 generatedAt.Size = UDim2.new(1, 0, 0, 18)
 generatedAt.BackgroundTransparency = 1
 generatedAt.Font = Enum.Font.Gotham
-generatedAt.Text = "Generated " .. tostring(manifest.generatedAt or "")
+generatedAt.Text = "Manifest not loaded"
 generatedAt.TextColor3 = Color3.fromRGB(150, 156, 166)
 generatedAt.TextSize = 11
 generatedAt.TextTruncate = Enum.TextTruncate.AtEnd
 generatedAt.TextXAlignment = Enum.TextXAlignment.Left
 generatedAt.Parent = root
 
+local localActions = Instance.new("Frame")
+localActions.Name = "LocalActions"
+localActions.LayoutOrder = 3
+localActions.Size = localMode and UDim2.new(1, 0, 0, 30) or UDim2.new(1, 0, 0, 0)
+localActions.BackgroundTransparency = 1
+localActions.Visible = localMode
+localActions.Parent = root
+
+local localActionsLayout = Instance.new("UIListLayout")
+localActionsLayout.FillDirection = Enum.FillDirection.Horizontal
+localActionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+localActionsLayout.Padding = UDim.new(0, 8)
+localActionsLayout.Parent = localActions
+
+local importButton = Instance.new("TextButton")
+importButton.Name = "ImportFiles"
+importButton.LayoutOrder = 1
+importButton.Size = UDim2.fromOffset(96, 30)
+importButton.BackgroundColor3 = Color3.fromRGB(232, 236, 242)
+importButton.BorderSizePixel = 0
+importButton.Font = Enum.Font.GothamBold
+importButton.Text = "Import"
+importButton.TextColor3 = Color3.fromRGB(20, 22, 25)
+importButton.TextSize = 12
+importButton.Parent = localActions
+
+local importCorner = Instance.new("UICorner")
+importCorner.CornerRadius = UDim.new(0, 6)
+importCorner.Parent = importButton
+
+local localModeLabel = Instance.new("TextLabel")
+localModeLabel.Name = "LocalMode"
+localModeLabel.LayoutOrder = 2
+localModeLabel.Size = UDim2.new(1, -104, 0, 30)
+localModeLabel.BackgroundTransparency = 1
+localModeLabel.Font = Enum.Font.Gotham
+localModeLabel.Text = "Local preview"
+localModeLabel.TextColor3 = Color3.fromRGB(150, 156, 166)
+localModeLabel.TextSize = 12
+localModeLabel.TextTruncate = Enum.TextTruncate.AtEnd
+localModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+localModeLabel.Parent = localActions
+
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "Search"
-searchBox.LayoutOrder = 3
+searchBox.LayoutOrder = 4
 searchBox.Size = UDim2.new(1, 0, 0, 34)
 searchBox.BackgroundColor3 = Color3.fromRGB(35, 38, 44)
 searchBox.BorderSizePixel = 0
@@ -222,7 +389,7 @@ searchCorner.Parent = searchBox
 
 local filters = Instance.new("Frame")
 filters.Name = "Filters"
-filters.LayoutOrder = 4
+filters.LayoutOrder = 5
 filters.Size = UDim2.new(1, 0, 0, 28)
 filters.BackgroundTransparency = 1
 filters.Parent = root
@@ -235,8 +402,8 @@ filterLayout.Parent = filters
 
 local list = Instance.new("ScrollingFrame")
 list.Name = "AssetList"
-list.LayoutOrder = 5
-list.Size = UDim2.new(1, 0, 1, -164)
+list.LayoutOrder = 6
+list.Size = localMode and UDim2.new(1, 0, 1, -202) or UDim2.new(1, 0, 1, -164)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.CanvasSize = UDim2.fromOffset(0, 0)
@@ -251,7 +418,7 @@ listLayout.Parent = list
 
 local status = Instance.new("TextLabel")
 status.Name = "Status"
-status.LayoutOrder = 6
+status.LayoutOrder = 7
 status.Size = UDim2.new(1, 0, 0, 20)
 status.BackgroundTransparency = 1
 status.Font = Enum.Font.Gotham
@@ -282,11 +449,56 @@ local typeColors = {
 	Unknown = Color3.fromRGB(120, 126, 138),
 }
 
-local usageByAssetId = {}
+local usageByAssetKey = {}
+local localAssetIds = {}
+local localFileRefs = {}
+local localAssetsByFileMatch = {}
 local watchedScripts = {}
 local watchedScriptCount = 0
 local usageScanScheduled = false
 local renderList
+local keySeparator = string.char(0)
+
+local function assetKey(asset)
+	return tostring(asset.group or "") .. keySeparator .. tostring(asset.path or "")
+end
+
+local function currentAssetId(asset)
+	local key = assetKey(asset)
+	return localAssetIds[key] or asset.assetId
+end
+
+local function isAssetReady(asset)
+	local assetId = currentAssetId(asset)
+	return assetId ~= nil and tostring(assetId) ~= ""
+end
+
+local function displayAssetId(asset)
+	if isAssetReady(asset) then
+		return tostring(currentAssetId(asset))
+	end
+
+	return localMode and "Not imported" or ""
+end
+
+local function rebuildLocalAssetIndex()
+	localAssetsByFileMatch = {}
+	if not localMode then
+		return
+	end
+
+	for _, asset in ipairs(assets) do
+		local name = tostring(asset.name or "")
+		local size = tostring(asset.size or "")
+		local matchKey = name .. keySeparator .. size
+		local matches = localAssetsByFileMatch[matchKey]
+		if not matches then
+			matches = {}
+			localAssetsByFileMatch[matchKey] = matches
+		end
+		table.insert(matches, asset)
+	end
+end
 
 local function sanitizeName(value)
 	local name = tostring(value or "Asset"):gsub("%.[^%.]+$", "")
@@ -321,6 +533,7 @@ end
 local function assetSearchTokens(asset)
 	local tokens = {}
 	local seen = {}
+	local assetId = currentAssetId(asset)
 
 	local function addToken(value)
 		local token = tostring(value or "")
@@ -330,19 +543,14 @@ local function assetSearchTokens(asset)
 		end
 	end
 
-	addToken(asset.assetId)
-	addToken(numericAssetId(asset.assetId))
+	addToken(assetId)
+	addToken(numericAssetId(assetId))
 	addToken(asset.path)
 	addToken(tostring(asset.path or ""):gsub("%.[^%.]+$", ""))
 	addToken(asset.name)
 	addToken(tostring(asset.name or ""):gsub("%.[^%.]+$", ""))
 
 	return tokens
-end
-
-local searchTokensByAssetId = {}
-for _, asset in ipairs(assets) do
-	searchTokensByAssetId[asset.assetId] = assetSearchTokens(asset)
 end
 
 local function ensureFolder(parent, folderName)
@@ -386,12 +594,13 @@ local function selectedBasePart()
 end
 
 local function placeDecal(asset)
+	local assetId = currentAssetId(asset)
 	local name = sanitizeName(asset.name or asset.path)
 	local part = selectedBasePart()
 	if part then
 		local decal = Instance.new("Decal")
 		decal.Name = name
-		decal.Texture = asset.assetId
+		decal.Texture = assetId
 		decal.Face = Enum.NormalId.Front
 		decal.Parent = part
 		return decal
@@ -401,47 +610,62 @@ local function placeDecal(asset)
 	local imageLabel = Instance.new("ImageLabel")
 	imageLabel.Name = name
 	imageLabel.BackgroundTransparency = 1
-	imageLabel.Image = asset.assetId
+	imageLabel.Image = assetId
 	imageLabel.Size = UDim2.fromOffset(256, 256)
 	imageLabel.Parent = screenGui
 	return imageLabel
 end
 
 local function placeAudio(asset)
+	local assetId = currentAssetId(asset)
 	local sound = Instance.new("Sound")
 	sound.Name = sanitizeName(asset.name or asset.path)
-	sound.SoundId = asset.assetId
+	sound.SoundId = assetId
 	sound.Parent = SoundService
 	return sound
 end
 
 local function placeAnimation(asset)
+	local assetId = currentAssetId(asset)
 	local folder = ensureFolder(ReplicatedStorage, "rocas Animations")
 	local animation = Instance.new("Animation")
 	animation.Name = sanitizeName(asset.name or asset.path)
-	animation.AnimationId = asset.assetId
+	animation.AnimationId = assetId
 	animation.Parent = folder
 	return animation
 end
 
 local function placeVideo(asset)
+	local assetId = currentAssetId(asset)
 	local screenGui = ensureScreenGui("rocas Videos")
 	local videoFrame = Instance.new("VideoFrame")
 	videoFrame.Name = sanitizeName(asset.name or asset.path)
 	videoFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 	videoFrame.Size = UDim2.fromOffset(320, 180)
-	videoFrame.Video = asset.assetId
+	videoFrame.Video = assetId
 	videoFrame.Parent = screenGui
 	return videoFrame
 end
 
 local function placeModel(asset)
-	local id = numericAssetId(asset.assetId)
-	if not id then
-		error("Invalid asset id")
+	local assetId = currentAssetId(asset)
+	local id = numericAssetId(assetId)
+	local container
+
+	if id then
+		container = InsertService:LoadAsset(id)
+	else
+		local objects = game:GetObjects(assetId)
+		if #objects == 1 and objects[1]:IsA("Model") then
+			container = objects[1]
+		else
+			container = Instance.new("Model")
+			for _, object in ipairs(objects) do
+				object.Parent = container
+			end
+		end
 	end
 
-	local container = InsertService:LoadAsset(id)
 	container.Name = sanitizeName(asset.name or asset.path)
 
 	local children = container:GetChildren()
@@ -458,6 +682,10 @@ local function placeModel(asset)
 end
 
 local function placeAsset(asset)
+	if not isAssetReady(asset) then
+		error("Import this local asset first")
+	end
+
 	if asset.assetType == "Decal" then
 		return placeDecal(asset)
 	elseif asset.assetType == "Audio" then
@@ -482,6 +710,128 @@ local function setStatus(message, isError)
 	end
 end
 
+local function extensionForAsset(asset)
+	return tostring(asset.name or asset.path or ""):match("%.([^%.]+)$")
+end
+
+local function supportedLocalExtensions()
+	local seen = {}
+	local extensions = {}
+
+	for _, asset in ipairs(assets) do
+		local extension = extensionForAsset(asset)
+		if extension then
+			extension = string.lower(extension)
+			if not seen[extension] then
+				seen[extension] = true
+				table.insert(extensions, extension)
+			end
+		end
+	end
+
+	return extensions
+end
+
+local function setLocalFileForAsset(asset, file)
+	local ok, tempId = pcall(function()
+		return file:GetTemporaryId()
+	end)
+
+	if not ok then
+		return false, tostring(tempId)
+	end
+
+	local key = assetKey(asset)
+	localAssetIds[key] = tostring(tempId)
+	localFileRefs[key] = file
+	return true
+end
+
+local function importLocalFile(file)
+	local matchKey = tostring(file.Name or "") .. keySeparator .. tostring(file.Size or "")
+	local matches = localAssetsByFileMatch[matchKey]
+	if not matches then
+		return 0
+	end
+
+	local imported = 0
+	for _, asset in ipairs(matches) do
+		local ok = setLocalFileForAsset(asset, file)
+		if ok then
+			imported = imported + 1
+		end
+	end
+
+	return imported
+end
+
+local function importLocalFiles()
+	if not localMode then
+		return
+	end
+
+	local extensions = supportedLocalExtensions()
+	local ok, files = pcall(function()
+		return StudioService:PromptImportFilesAsync(extensions)
+	end)
+
+	if not ok then
+		setStatus(tostring(files), true)
+		return
+	end
+
+	if not files then
+		return
+	end
+
+	local imported = 0
+	local unmatched = 0
+	for _, file in ipairs(files) do
+		local count = importLocalFile(file)
+		if count == 0 then
+			unmatched = unmatched + 1
+		end
+		imported = imported + count
+	end
+
+	renderList()
+	if unmatched > 0 then
+		setStatus("Imported " .. tostring(imported) .. " asset(s); " .. tostring(unmatched) .. " unmatched file(s)", false)
+	else
+		setStatus("Imported " .. tostring(imported) .. " local asset(s)", false)
+	end
+end
+
+local function loadLocalAsset(asset)
+	local extension = extensionForAsset(asset)
+	local ok, file = pcall(function()
+		if extension then
+			return StudioService:PromptImportFileAsync({ string.lower(extension) })
+		end
+
+		return StudioService:PromptImportFileAsync()
+	end)
+
+	if not ok then
+		setStatus(tostring(file), true)
+		return false
+	end
+
+	if not file then
+		return false
+	end
+
+	local loaded, message = setLocalFileForAsset(asset, file)
+	if not loaded then
+		setStatus(message, true)
+		return false
+	end
+
+	renderList()
+	setStatus("Loaded " .. tostring(asset.name or asset.path or "asset"), false)
+	return true
+end
+
 local function matchesFilter(asset)
 	if selectedType ~= "All" and asset.assetType ~= selectedType then
 		return false
@@ -496,7 +846,7 @@ local function matchesFilter(asset)
 		tostring(asset.group or ""),
 		tostring(asset.path or ""),
 		tostring(asset.name or ""),
-		tostring(asset.assetId or ""),
+		tostring(currentAssetId(asset) or ""),
 		tostring(asset.assetType or ""),
 	}, " "))
 
@@ -504,7 +854,7 @@ local function matchesFilter(asset)
 end
 
 local function sourceUsesAsset(source, asset)
-	local tokens = searchTokensByAssetId[asset.assetId] or {}
+	local tokens = assetSearchTokens(asset)
 	for _, token in ipairs(tokens) do
 		if #token >= 4 and string.find(source, token, 1, true) then
 			return true
@@ -526,14 +876,15 @@ local function rebuildUsage()
 			if source and not string.find(source, "auto-generated by rocas", 1, true) then
 				for _, asset in ipairs(assets) do
 					if sourceUsesAsset(source, asset) then
-						nextUsage[asset.assetId] = (nextUsage[asset.assetId] or 0) + 1
+						local key = assetKey(asset)
+						nextUsage[key] = (nextUsage[key] or 0) + 1
 					end
 				end
 			end
 		end
 	end
 
-	usageByAssetId = nextUsage
+	usageByAssetKey = nextUsage
 	watchedScriptCount = nextWatchedScriptCount
 	renderList()
 end
@@ -574,6 +925,146 @@ local function unwatchScript(instance)
 	connection:Disconnect()
 	watchedScripts[instance] = nil
 	scheduleUsageScan()
+end
+
+local manifestSourceConnections = {}
+local manifestReloadScheduled = false
+local reloadManifest
+local scheduleManifestReload
+
+local function decodeManifestJsonFromSource(source)
+	local markerStart = string.find(source, "ROCAS_MANIFEST_JSON_BEGIN", 1, true)
+	if not markerStart then
+		return nil
+	end
+
+	local openStart, openEnd = string.find(source, "%[=*%[", markerStart)
+	if not openStart then
+		return nil
+	end
+
+	local open = string.sub(source, openStart, openEnd)
+	local equals = string.match(open, "^%[(=*)%[$") or ""
+	local close = "]" .. equals .. "]"
+	local contentStart = openEnd + 1
+	local contentEnd = string.find(source, close, contentStart, true)
+	if not contentEnd then
+		return nil
+	end
+
+	return string.sub(source, contentStart, contentEnd - 1)
+end
+
+local function readManifestFromModule(moduleScript)
+	local source = readScriptSource(moduleScript)
+	if not source then
+		return nil
+	end
+
+	local manifestJson = decodeManifestJsonFromSource(source)
+	if not manifestJson then
+		return nil
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(manifestJson)
+	end)
+
+	if ok and type(decoded) == "table" and decoded.generatedBy == "rocas" then
+		return decoded
+	end
+
+	return nil
+end
+
+local function findManifest()
+	for _, descendant in ipairs(ReplicatedStorage:GetDescendants()) do
+		if descendant:IsA("ModuleScript") then
+			local nextManifest = readManifestFromModule(descendant)
+			if nextManifest then
+				return nextManifest, descendant
+			end
+		end
+	end
+
+	return nil, nil
+end
+
+local function applyManifest(nextManifest, sourceModule)
+	local previousLocalAssetIds = localAssetIds
+	local previousLocalFileRefs = localFileRefs
+	manifest = nextManifest or { generatedBy = "rocas", mode = "uploaded", assets = {} }
+	assets = manifest.assets or {}
+	localMode = manifest.mode == "local"
+	localAssetIds = {}
+	localFileRefs = {}
+	usageByAssetKey = {}
+	if localMode then
+		for _, asset in ipairs(assets) do
+			local key = assetKey(asset)
+			localAssetIds[key] = previousLocalAssetIds[key]
+			localFileRefs[key] = previousLocalFileRefs[key]
+		end
+	end
+	rebuildLocalAssetIndex()
+
+	localActions.Visible = localMode
+	localActions.Size = localMode and UDim2.new(1, 0, 0, 30) or UDim2.new(1, 0, 0, 0)
+	list.Size = localMode and UDim2.new(1, 0, 1, -202) or UDim2.new(1, 0, 1, -164)
+
+	if sourceModule then
+		generatedAt.Text = "Manifest: " .. tostring(manifest.mode or "uploaded") .. " / " .. sourceModule:GetFullName()
+	else
+		generatedAt.Text = "Manifest not loaded"
+	end
+
+	scheduleUsageScan()
+	if renderList then
+		renderList()
+	end
+end
+
+local function refreshManifestWatches()
+	for _, connection in ipairs(manifestSourceConnections) do
+		connection:Disconnect()
+	end
+	manifestSourceConnections = {}
+
+	for _, descendant in ipairs(ReplicatedStorage:GetDescendants()) do
+		if descendant:IsA("ModuleScript") then
+			local ok, connection = pcall(function()
+				return descendant:GetPropertyChangedSignal("Source"):Connect(function()
+					if scheduleManifestReload then
+						scheduleManifestReload()
+					end
+				end)
+			end)
+
+			if ok and connection then
+				table.insert(manifestSourceConnections, connection)
+			end
+		end
+	end
+end
+
+scheduleManifestReload = function()
+	if manifestReloadScheduled then
+		return
+	end
+
+	manifestReloadScheduled = true
+	task.delay(0.2, function()
+		manifestReloadScheduled = false
+		if reloadManifest then
+			reloadManifest()
+		end
+	end)
+end
+
+reloadManifest = function()
+	refreshManifestWatches()
+	local nextManifest, sourceModule = findManifest()
+	applyManifest(nextManifest, sourceModule)
 end
 
 local function updateFilterButtons()
@@ -622,12 +1113,12 @@ local function createRow(asset, index)
 	previewCorner.CornerRadius = UDim.new(0, 6)
 	previewCorner.Parent = preview
 
-	if asset.assetType == "Decal" then
+	if asset.assetType == "Decal" and isAssetReady(asset) then
 		local thumbnail = Instance.new("ImageLabel")
 		thumbnail.Name = "Thumbnail"
 		thumbnail.Size = UDim2.fromScale(1, 1)
 		thumbnail.BackgroundTransparency = 1
-		thumbnail.Image = asset.assetId
+		thumbnail.Image = currentAssetId(asset)
 		thumbnail.ScaleType = Enum.ScaleType.Crop
 		thumbnail.Parent = preview
 	else
@@ -661,7 +1152,7 @@ local function createRow(asset, index)
 	meta.Size = UDim2.new(1, -152, 0, 17)
 	meta.BackgroundTransparency = 1
 	meta.Font = Enum.Font.Gotham
-	meta.Text = tostring(asset.group or "") .. " / " .. tostring(asset.path or "") .. " | Used in " .. tostring(usageByAssetId[asset.assetId] or 0)
+	meta.Text = tostring(asset.group or "") .. " / " .. tostring(asset.path or "") .. " | Used in " .. tostring(usageByAssetKey[assetKey(asset)] or 0)
 	meta.TextColor3 = Color3.fromRGB(156, 164, 176)
 	meta.TextSize = 11
 	meta.TextTruncate = Enum.TextTruncate.AtEnd
@@ -676,8 +1167,8 @@ local function createRow(asset, index)
 	assetId.BorderSizePixel = 0
 	assetId.ClearTextOnFocus = false
 	assetId.Font = Enum.Font.Code
-	assetId.Text = tostring(asset.assetId or "")
-	assetId.TextColor3 = Color3.fromRGB(202, 209, 219)
+	assetId.Text = displayAssetId(asset)
+	assetId.TextColor3 = isAssetReady(asset) and Color3.fromRGB(202, 209, 219) or Color3.fromRGB(143, 151, 163)
 	assetId.TextEditable = false
 	assetId.TextSize = 11
 	assetId.TextTruncate = Enum.TextTruncate.AtEnd
@@ -717,7 +1208,7 @@ local function createRow(asset, index)
 	insertButton.BackgroundColor3 = Color3.fromRGB(232, 236, 242)
 	insertButton.BorderSizePixel = 0
 	insertButton.Font = Enum.Font.GothamBold
-	insertButton.Text = "Insert"
+	insertButton.Text = localMode and not isAssetReady(asset) and "Load" or "Insert"
 	insertButton.TextColor3 = Color3.fromRGB(20, 22, 25)
 	insertButton.TextSize = 12
 	insertButton.Parent = row
@@ -727,6 +1218,11 @@ local function createRow(asset, index)
 	insertCorner.Parent = insertButton
 
 	insertButton.MouseButton1Click:Connect(function()
+		if localMode and not isAssetReady(asset) then
+			loadLocalAsset(asset)
+			return
+		end
+
 		local ok, inserted = pcall(placeAsset, asset)
 		if not ok then
 			setStatus(tostring(inserted), true)
@@ -755,7 +1251,17 @@ function renderList()
 	end
 
 	list.CanvasSize = UDim2.fromOffset(0, listLayout.AbsoluteContentSize.Y + 8)
-	setStatus(tostring(visible) .. " of " .. tostring(#assets) .. " assets, watching " .. tostring(watchedScriptCount) .. " scripts", false)
+	if localMode then
+		local loaded = 0
+		for _, asset in ipairs(assets) do
+			if isAssetReady(asset) then
+				loaded = loaded + 1
+			end
+		end
+		setStatus(tostring(visible) .. " of " .. tostring(#assets) .. " assets, " .. tostring(loaded) .. " imported", false)
+	else
+		setStatus(tostring(visible) .. " of " .. tostring(#assets) .. " assets, watching " .. tostring(watchedScriptCount) .. " scripts", false)
+	end
 end
 
 for index, filter in ipairs(filterValues) do
@@ -785,6 +1291,7 @@ for index, filter in ipairs(filterValues) do
 	end)
 end
 
+importButton.MouseButton1Click:Connect(importLocalFiles)
 searchBox:GetPropertyChangedSignal("Text"):Connect(renderList)
 listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 	list.CanvasSize = UDim2.fromOffset(0, listLayout.AbsoluteContentSize.Y + 8)
@@ -800,18 +1307,24 @@ end
 
 game.DescendantAdded:Connect(watchScript)
 game.DescendantRemoving:Connect(unwatchScript)
+ReplicatedStorage.DescendantAdded:Connect(scheduleManifestReload)
+ReplicatedStorage.DescendantRemoving:Connect(scheduleManifestReload)
 
 updateFilterButtons()
-renderList()
-scheduleUsageScan()
+reloadManifest()
 `;
 
 module.exports = {
 	buildStudioPluginManifest,
 	defaultStudioPluginOutputPath,
+	generateManifestModule,
 	generateStudioPlugin,
+	generateStudioPluginRbxm,
+	generateStudioPluginRbxmx,
 	luaLongString,
+	resolveManifestOutputPath,
 	resolveStudioPluginOutputPath,
 	robloxStudioPluginsDir,
+	writeStudioManifest,
 	writeStudioPlugin,
 };

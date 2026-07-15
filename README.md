@@ -10,7 +10,7 @@ Sync images, sounds, meshes, animations, and videos to Roblox through the [Open 
 - **Recursive directory scanning** - nested folders become nested generated objects
 - **Luau native by default** - generates `--!strict` type-annotated `.luau` output
 - **roblox-ts compatibility format** - opt in to `.luau` + `.d.ts` pairs in an Asphalt-like shape
-- **Zero dependencies** - pure Node.js (>=18), no external packages
+- **Local Studio preview mode** - browse local assets in Studio without an Open Cloud API key
 - **CLI + library** - use `rocas sync` or `require("rocas")`
 
 ## Supported Formats
@@ -70,19 +70,35 @@ rocas sync
 rocas watch
 rocas watch --debounce 5000
 rocas plugin
+rocas manifest
+rocas manifest --local
 ```
 
 ## Roblox Studio Plugin
 
-After running `rocas sync`, generate a local Studio plugin from the generated lock files:
+Generate the local Studio plugin:
 
 ```bash
 rocas plugin
 ```
 
-By default, rocas writes the generated `.luau` file directly into your Roblox Studio local Plugins folder. Use `--output <path>` when you want to write it somewhere else.
+By default, rocas writes the generated `.rbxm` file directly into your Roblox Studio local Plugins folder. Studio does not currently recognize `.luau` files in that folder as local plugins. Use `--output <path>` when you want to write it somewhere else; `.lua` and `.rbxmx` output paths are also supported. The plugin is static; you don't need to regenerate it when assets change.
 
-In Studio, the `rocas` toolbar opens an asset browser UI where you can search synced assets, preview image assets, inspect asset IDs, and click `Insert` to place references in the current place.
+After running `rocas sync`, generate a manifest ModuleScript for Rojo or Argon to sync into `ReplicatedStorage`:
+
+```bash
+rocas manifest --output src/shared/RocasManifest.luau
+```
+
+The Studio plugin scans `ReplicatedStorage` for the generated manifest module, then opens an asset browser UI where you can search synced assets, preview image assets, inspect asset IDs, and click `Insert` to place references in the current place. When Rojo or Argon syncs a changed manifest into Studio, the plugin reloads the catalog.
+
+To browse assets without uploading them, generate a local manifest:
+
+```bash
+rocas manifest --local --output src/shared/RocasManifest.luau
+```
+
+Local manifests scan the asset folders in `rocas.toml` directly and do not require `ROCAS_API_KEY`. In Studio, click `Import` to choose matching files, or click `Load` on a single row. The plugin uses `File:GetTemporaryId()` and `rbxtemp://` IDs, so these references only work in the current Studio session and are not shared or saved as permanent Roblox assets. Use `rocas sync` and `rocas manifest` when you need durable `rbxassetid://` IDs for team/shared/runtime use.
 
 The plugin also watches `Script`, `LocalScript`, and `ModuleScript` source changes inside Studio. This works with tools like Rojo and Argon after they sync file changes into Studio, and the asset browser updates each asset's usage count when matching asset IDs, paths, or file names appear in script source.
 

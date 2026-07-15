@@ -2,6 +2,7 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { RobloxFile } = require("rbxm-parser");
 const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("../src/formats");
@@ -11,8 +12,12 @@ const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
 const {
 	buildStudioPluginManifest,
 	defaultStudioPluginOutputPath,
+	generateManifestModule,
 	generateStudioPlugin,
+	generateStudioPluginRbxm,
+	generateStudioPluginRbxmx,
 	luaLongString,
+	resolveManifestOutputPath,
 	resolveStudioPluginOutputPath,
 	robloxStudioPluginsDir,
 } = require("../src/studio-plugin");
@@ -242,6 +247,8 @@ console.log("Testing asset map generation...");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-test-"));
 const textureDir = path.join(tempDir, "assets", "textures");
 fs.mkdirSync(path.join(textureDir, "Texture"), { recursive: true });
+fs.writeFileSync(path.join(textureDir, "Texture", "Particle01.png"), Buffer.from([1, 2, 3]));
+fs.writeFileSync(path.join(textureDir, "Texture", "Particle02.png"), Buffer.from([4, 5, 6, 7]));
 fs.writeFileSync(
 	path.join(textureDir, "images.lock.json"),
 	JSON.stringify(
@@ -276,23 +283,64 @@ assert.strictEqual(studioManifest.assets[0].group, "images");
 assert.strictEqual(studioManifest.assets[0].assetType, "Decal");
 assert.strictEqual(studioManifest.assets[0].assetId, "rbxassetid://777");
 assert.strictEqual(studioManifest.assets[0].sourcePath, "assets/textures/Texture/Particle01.png");
+assert.strictEqual(studioManifest.assets[0].source, "uploaded");
 
 const pluginSource = generateStudioPlugin(studioManifest);
+assert(!pluginSource.includes("\0"));
 assert(pluginSource.includes("plugin:CreateToolbar(\"rocas\")"));
 assert(pluginSource.includes("InsertService:LoadAsset"));
 assert(pluginSource.includes("GetPropertyChangedSignal(\"Source\")"));
 assert(pluginSource.includes("game.DescendantAdded:Connect(watchScript)"));
-assert(pluginSource.includes("Texture/Particle01.png"));
-assert(pluginSource.includes("rbxassetid://888"));
+assert(pluginSource.includes("string.char(0)"));
+assert(pluginSource.includes("ROCAS_MANIFEST_JSON_BEGIN"));
+assert(pluginSource.includes("ReplicatedStorage:GetDescendants()"));
+assert(!pluginSource.includes("Texture/Particle01.png"));
+assert(!pluginSource.includes("rbxassetid://888"));
+
+const pluginModel = generateStudioPluginRbxmx(pluginSource);
+assert(pluginModel.includes('<Item class="Script"'));
+assert(pluginModel.includes('<ProtectedString name="Source"><![CDATA['));
+assert(pluginModel.includes("plugin:CreateToolbar(\"rocas\")"));
+
+const pluginBinaryModel = generateStudioPluginRbxm(pluginSource);
+const parsedPluginModel = RobloxFile.ReadFromBuffer(pluginBinaryModel);
+assert(parsedPluginModel);
+assert.strictEqual(parsedPluginModel.Roots.length, 1);
+assert.strictEqual(parsedPluginModel.Roots[0].ClassName, "Script");
+assert.strictEqual(parsedPluginModel.Roots[0].Name, "rocas");
+assert(!parsedPluginModel.Roots[0].Source.includes("\0"));
+assert(parsedPluginModel.Roots[0].Source.includes("plugin:CreateToolbar(\"rocas\")"));
+
+const manifestModule = generateManifestModule(studioManifest);
+assert(manifestModule.includes("ROCAS_MANIFEST_JSON_BEGIN"));
+assert(manifestModule.includes("ROCAS_MANIFEST_JSON_END"));
+assert(manifestModule.includes("Texture/Particle01.png"));
+assert(manifestModule.includes("rbxassetid://888"));
+
+const localStudioManifest = buildStudioPluginManifest(mapConfig, tempDir, { local: true });
+assert.strictEqual(localStudioManifest.mode, "local");
+assert.strictEqual(localStudioManifest.assets.length, 2);
+assert.strictEqual(localStudioManifest.assets[0].source, "local");
+assert.strictEqual(localStudioManifest.assets[0].assetId, undefined);
+assert.strictEqual(localStudioManifest.assets[0].size, 3);
+assert.strictEqual(localStudioManifest.assets[0].sourcePath, "assets/textures/Texture/Particle01.png");
+
+const localManifestModule = generateManifestModule(localStudioManifest);
+assert(localManifestModule.includes("PromptImportFilesAsync") === false);
+assert(localManifestModule.includes('"mode": "local"'));
+assert(pluginSource.includes("PromptImportFilesAsync"));
+assert(pluginSource.includes("PromptImportFileAsync"));
+assert(pluginSource.includes("GetTemporaryId"));
 assert.strictEqual(luaLongString("plain"), "[[plain]]");
 assert.strictEqual(luaLongString("has ]] marker"), "[=[has ]] marker]=]");
+assert.strictEqual(resolveManifestOutputPath(tempDir), path.join(tempDir, "src", "shared", "RocasManifest.luau"));
 assert.strictEqual(
 	robloxStudioPluginsDir({ LOCALAPPDATA: "C:\\Users\\Example\\AppData\\Local" }, "win32"),
 	path.join("C:\\Users\\Example\\AppData\\Local", "Roblox", "Plugins"),
 );
 assert.strictEqual(
 	defaultStudioPluginOutputPath(tempDir, { LOCALAPPDATA: "C:\\Users\\Example\\AppData\\Local" }, "win32"),
-	path.join("C:\\Users\\Example\\AppData\\Local", "Roblox", "Plugins", "rocas-studio-plugin.luau"),
+	path.join("C:\\Users\\Example\\AppData\\Local", "Roblox", "Plugins", "rocas-studio-plugin.rbxm"),
 );
 assert.strictEqual(resolveStudioPluginOutputPath(tempDir, "custom/plugin.luau"), path.resolve(tempDir, "custom/plugin.luau"));
 console.log("  Studio plugin generation OK");

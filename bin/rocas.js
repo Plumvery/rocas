@@ -3,7 +3,7 @@
 const { loadEnv, loadConfig } = require("../src/config");
 const { syncAll } = require("../src/sync");
 const { watchAll } = require("../src/watch");
-const { writeStudioPlugin } = require("../src/studio-plugin");
+const { writeStudioManifest, writeStudioPlugin } = require("../src/studio-plugin");
 const path = require("path");
 
 const HELP = `
@@ -12,7 +12,10 @@ rocas - Roblox Open Cloud Asset Sync
 Usage:
   rocas sync       Sync all assets defined in rocas.toml
   rocas watch      Watch for file changes and sync automatically
-  rocas plugin     Generate a Roblox Studio plugin from lock files
+  rocas plugin     Generate the static Roblox Studio plugin
+  rocas manifest   Generate a ReplicatedStorage manifest module from lock files
+  rocas manifest --local
+                   Generate a manifest from local asset files without uploading
   rocas help       Show this help message
 
 Options (watch):
@@ -20,6 +23,10 @@ Options (watch):
 
 Options (plugin):
   --output <path>  Output plugin path (default: Roblox Studio local Plugins folder)
+
+Options (manifest):
+  --output <path>  Output manifest ModuleScript path (default: src/shared/RocasManifest.luau)
+  --local          Use local Studio temporary asset IDs instead of lock files
 
 Environment:
   ROCAS_API_KEY    Roblox Open Cloud API key (or set in .env)
@@ -33,23 +40,40 @@ async function main() {
 		process.exit(0);
 	}
 
-	if (command !== "sync" && command !== "watch" && command !== "plugin" && command !== "studio-plugin") {
+	if (command !== "sync" && command !== "watch" && command !== "plugin" && command !== "studio-plugin" && command !== "manifest") {
 		console.error(`Unknown command: ${command}`);
 		console.log(HELP.trim());
 		process.exit(1);
 	}
 
 	loadEnv();
-	const config = loadConfig();
 
 	if (command === "plugin" || command === "studio-plugin") {
 		const outputIdx = process.argv.indexOf("--output");
 		const shortOutputIdx = process.argv.indexOf("-o");
 		const selectedIdx = outputIdx !== -1 ? outputIdx : shortOutputIdx;
 		const outputPath = selectedIdx !== -1 && process.argv[selectedIdx + 1] ? process.argv[selectedIdx + 1] : undefined;
-		const pluginPath = writeStudioPlugin(config, process.cwd(), outputPath);
+		if (process.argv.includes("--local")) {
+			console.error("plugin --local was removed. Use `rocas manifest --local` with the static plugin instead.");
+			process.exit(1);
+		}
+		const pluginPath = writeStudioPlugin(null, process.cwd(), outputPath);
 		const displayPath = outputPath ? path.relative(process.cwd(), pluginPath) : pluginPath;
 		console.log(`Generated Studio plugin: ${displayPath}`);
+		return;
+	}
+
+	const config = loadConfig();
+
+	if (command === "manifest") {
+		const outputIdx = process.argv.indexOf("--output");
+		const shortOutputIdx = process.argv.indexOf("-o");
+		const selectedIdx = outputIdx !== -1 ? outputIdx : shortOutputIdx;
+		const outputPath = selectedIdx !== -1 && process.argv[selectedIdx + 1] ? process.argv[selectedIdx + 1] : undefined;
+		const local = process.argv.includes("--local");
+		const manifestPath = writeStudioManifest(config, process.cwd(), outputPath, { local });
+		const displayPath = path.relative(process.cwd(), manifestPath);
+		console.log(`Generated ${local ? "local " : ""}Studio manifest: ${displayPath}`);
 		return;
 	}
 
