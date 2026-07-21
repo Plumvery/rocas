@@ -7,8 +7,18 @@
     "rocas": "bin/rocas.js"
   },
   "scripts": {
-    "test": "node test/test.js"
+    "test": "node test/test.js",
+    "prepublishOnly": "npm test"
   },
+  "author": "Plumvery",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Plumvery/rocas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Plumvery/rocas/issues"
+  },
+  "homepage": "https://github.com/Plumvery/rocas#readme",
   "keywords": [
     "rocas",
     "roblox",
