@@ -1,0 +1,471 @@
+<div align="center">
+
+<h1>rocas</h1>
+
+**Roblox Open Cloud Asset Sync**
+
+画像・サウンド・メッシュ・アニメーション・動画を
+[Open Cloud Assets API](https://create.roblox.com/docs/cloud/guides/usage-assets) 経由で Roblox にアップロードし、
+型付きの Luau / roblox-ts バインディングを自動生成します。
+
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Roblox Open Cloud](https://img.shields.io/badge/Roblox-Open%20Cloud-00A2FF?style=flat-square&logo=roblox&logoColor=white)](https://create.roblox.com/docs/cloud/guides/usage-assets)
+[![Output](https://img.shields.io/badge/output-Luau%20%7C%20roblox--ts-1D1D1D?style=flat-square)](#format)
+
+[クイックスタート](#クイックスタート) ·
+[CLI](#cli) ·
+[設定](#設定) ·
+[Studio プラグイン](#roblox-studio-プラグイン) ·
+[生成される出力](#生成される出力) ·
+[API リファレンス](docs/api.ja.md)
+
+[English](README.md) | **日本語**
+
+</div>
+
+---
+
+`assets/` にファイルを置いて `rocas sync` を実行すれば、完全な型安全付きで require できます:
+
+```lua
+local images = require(ReplicatedStorage.Shared.images)
+
+imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
+```
+
+アセット ID の手動コピペも、古くなった ID も、型のない文字列テーブルも不要です。
+
+## 特徴
+
+- **全アセットタイプ対応** — 画像・サウンド・メッシュ・アニメーション・動画
+- **ハッシュベースの変更検知** — 実際に変わったものだけをアップロードし、ロックファイルで管理
+- **設定変更を検知して再同期** — `rocas.toml` の creator や `assetType` が変わると、ファイル内容が同一でも再アップロード
+- **ディレクトリの再帰スキャン** — ネストしたフォルダはネストした生成オブジェクトに
+- **Luau ネイティブがデフォルト** — `--!strict` の型注釈付き `.luau` を生成
+- **roblox-ts 互換** — オプトインで Asphalt 風の `.luau` + `.d.ts` ペアを出力
+- **Studio プラグイン** — Studio を離れずに同期済みアセットの閲覧・検索・プレビュー・挿入
+- **ローカルプレビューモード** — Open Cloud API キーなしでローカルアセットを Studio で閲覧
+- **CLI + ライブラリ** — `rocas sync` でも `require("rocas")` でも
+
+## 動作要件
+
+| | |
+|---|---|
+| **Node.js** | 18 以上 |
+| **Roblox Open Cloud API キー** | `sync` と `watch` のみ必要。[Creator Dashboard](https://create.roblox.com/dashboard/credentials) で、対象ユーザーまたはグループの Assets 読み書き権限を付けて作成してください。 |
+
+> [!NOTE]
+> `rocas plugin` と `rocas manifest --local` は完全オフラインで動作します — API キー不要。
+
+## インストール
+
+グローバルに CLI として:
+
+```bash
+npm install -g github:Plumvery/rocas
+```
+
+またはプロジェクトの devDependency として:
+
+```bash
+npm install --save-dev github:Plumvery/rocas
+```
+
+## クイックスタート
+
+**1. プロジェクトルートに `rocas.toml` を作成**
+
+```toml
+[creator]
+type = "user"
+id = 123456789
+
+[[sync]]
+name = "images"
+path = "assets/images"
+output = "src/shared/images"
+
+[[sync]]
+name = "sounds"
+path = "assets/sounds"
+output = "src/shared/sounds"
+```
+
+**2. API キーを `.env` に追加**
+
+```env
+ROCAS_API_KEY="your-open-cloud-api-key"
+```
+
+> [!TIP]
+> `.env` が `.gitignore` に入っていることを確認してください。Open Cloud API キーは絶対にコミットしないこと。
+
+**3. 同期**
+
+```bash
+rocas sync
+```
+
+アセットがアップロードされ、結果のアセット ID を含む `src/shared/images.luau` + `src/shared/sounds.luau` が生成されます。
+
+**4. 作業中は起動しっぱなしに**
+
+```bash
+rocas watch
+```
+
+## CLI
+
+| コマンド | 説明 |
+|---------|-------------|
+| `rocas sync` | 変更されたアセットをアップロードし、バインディングを再生成 |
+| `rocas watch` | アセットディレクトリと `rocas.toml` を監視し、変更時に同期 |
+| `rocas plugin` | 静的な Roblox Studio プラグインを生成 |
+| `rocas manifest` | ロックファイルから `ReplicatedStorage` マニフェスト ModuleScript を生成 |
+| `rocas help` | ヘルプを表示 |
+
+### オプション
+
+| フラグ | 対象 | デフォルト | 説明 |
+|------|-----------|---------|-------------|
+| `--debounce <ms>` | `watch` | `10000` | 同期実行までのデバウンス間隔 |
+| `--output`, `-o <path>` | `plugin` | Studio のローカル Plugins フォルダ | プラグインの出力先 |
+| `--output`, `-o <path>` | `manifest` | `src/shared/RocasManifest.luau` | マニフェストモジュールの出力先 |
+| `--local` | `manifest` | — | ロックファイルではなくローカルファイルから生成。アップロードも API キーも不要 |
+
+### 環境変数
+
+| 変数 | 説明 |
+|----------|-------------|
+| `ROCAS_API_KEY` | Roblox Open Cloud API キー。`.env` に書くかシェルで export。 |
+
+## 対応フォーマット
+
+| タイプ | 拡張子 | Roblox `assetType` |
+|------|------------|--------------------|
+| 画像 | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
+| 音声 | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
+| メッシュ | `.fbx` `.glb` `.gltf` `.obj` | `Model` |
+| アニメーション | `.rbxm` `.rbxmx` | `Animation` |
+| 動画 | `.mp4` `.mov` | `Video` |
+
+アセットタイプはファイル拡張子から自動判定され、グループごとに `assetType` で上書きできます。
+
+## 設定
+
+### `rocas.toml`
+
+```toml
+[creator]
+type = "user"       # "user" または "group"
+id = 123456789      # Roblox ユーザー ID またはグループ ID
+
+[[sync]]
+name = "images"              # グループ名。images.lock.json に使われる
+path = "assets/images"       # 再帰的にスキャンするディレクトリ
+output = "src/shared/images" # デフォルトでは images.luau を生成
+# assetType = "Decal"        # 任意: アセットタイプを強制
+# format = "luau"            # "luau"（デフォルト）または "roblox-ts"
+# stripExtensions = false    # 生成キーからファイル拡張子を除去
+```
+
+コメント付きの完全なリファレンスは [`rocas.toml.example`](rocas.toml.example) を参照してください。
+
+### `format`
+
+| 値 | 出力 | 説明 |
+|-------|--------|-------------|
+| `"luau"` *(デフォルト)* | `.luau` | `--!strict` の型注釈付き出力 |
+| `"roblox-ts"` | `.luau` + `.d.ts` | roblox-ts / Asphalt 互換の出力 |
+
+### `stripExtensions`
+
+`true` にすると、生成キーからファイル拡張子が除去されます:
+
+```lua
+-- stripExtensions = false (デフォルト)
+images.ui["button.png"]
+
+-- stripExtensions = true
+images.ui.button
+```
+
+## 変更検知
+
+rocas は各同期ディレクトリの中に `<name>.lock.json` を保持します（例: `assets/images/images.lock.json`）。アセットが**スキップ**されるのは、次の両方がロックと一致したときだけです:
+
+1. ファイル内容のハッシュ
+2. アップロードに影響する `rocas.toml` 設定のフィンガープリント（`[creator]` の `type`/`id` と解決後の `assetType`）
+
+> [!IMPORTANT]
+> `rocas.toml` の creator を変えた場合 — たとえば `[creator].id` をグループから自分のユーザーに変更した場合 — 次の `rocas sync` は、ファイル自体が変わっていなくても、影響する全アセットを新しい creator で再アップロードします。
+
+`output`・`format`・`stripExtensions` の変更はコード生成にのみ影響し、再アップロードは発生しません。`rocas watch` は `rocas.toml` 自体も監視するので、設定を保存すると再読み込みして同期が走ります。
+
+<details>
+<summary><b>フィンガープリント導入前のバージョンからのアップグレード</b></summary>
+
+<br>
+
+旧バージョンの rocas が書いたロックエントリには設定フィンガープリントがありません。アップグレード後の最初の同期では、現在の設定をベースラインとして**再アップロードなしで**記録するため、アップグレードだけでアセット ID が入れ替わることはありません。
+
+強制的に全アセットを再アップロードしたい場合 — たとえばフィンガープリント導入前のロックのまま creator を変更していた場合 — は、該当する `*.lock.json` を削除して `rocas sync` を実行してください。
+
+</details>
+
+## Roblox Studio プラグイン
+
+プラグインは一度だけ生成します:
+
+```bash
+rocas plugin
+```
+
+プラグインは静的です — アセットが変わっても再生成する必要はありません。
+
+> [!NOTE]
+> Studio はローカルプラグインとして `.luau` ファイルを認識しないため、デフォルトでは生成した `.rbxm` を Roblox Studio のローカル Plugins フォルダに直接書き込みます。別の場所に出力したい場合は `--output <path>` を指定してください。`.lua` と `.rbxmx` の出力パスにも対応しています。
+
+### 同期済みアセットの閲覧
+
+`rocas sync` を実行した後、Rojo や Argon で `ReplicatedStorage` に同期するためのマニフェスト ModuleScript を生成します:
+
+```bash
+rocas manifest --output src/shared/RocasManifest.luau
+```
+
+プラグインは `ReplicatedStorage` からマニフェストモジュールを探し、同期済みアセットの検索・画像プレビュー・アセット ID の確認ができるアセットブラウザを開きます。**Insert** をクリックすると現在のプレイスに参照を配置できます。Rojo や Argon が変更されたマニフェストを Studio に同期すると、プラグインは自動的にカタログを再読み込みします。
+
+さらに Studio 内の `Script`・`LocalScript`・`ModuleScript` のソース変更を監視し、スクリプト中に一致するアセット ID・パス・ファイル名が現れると各アセットの使用回数を更新します。
+
+### アップロードせずに閲覧する
+
+```bash
+rocas manifest --local --output src/shared/RocasManifest.luau
+```
+
+ローカルマニフェストは `rocas.toml` のアセットフォルダを直接スキャンし、`ROCAS_API_KEY` を必要としません。Studio では **Import** をクリックして対象ファイルを選ぶか、行ごとの **Load** を使います。
+
+> [!WARNING]
+> ローカルモードは `File:GetTemporaryId()` と `rbxtemp://` ID を使います。これらの参照は現在の Studio セッションでのみ有効です — 共有されず、恒久的な Roblox アセットとしても保存されません。チーム・共有・ランタイム用途で永続的な `rbxassetid://` ID が必要な場合は `rocas sync` + `rocas manifest` を使ってください。
+
+<details>
+<summary><b>アセットタイプごとの <code>Insert</code> の挙動</b></summary>
+
+<br>
+
+| アセットタイプ | 挿入先 |
+|------------|---------------|
+| Decal / Image | 選択中の `BasePart` に `Decal` として。未選択なら `StarterGui` に `ImageLabel` として |
+| Audio | `SoundService` に `Sound` として |
+| Model / Mesh | `InsertService:LoadAsset` 経由で `Workspace` へ |
+| Animation | `ReplicatedStorage/rocas Animations` に `Animation` として |
+| Video | `StarterGui` に `VideoFrame` として |
+
+</details>
+
+## 生成される出力
+
+次のディレクトリ構造の場合:
+
+```text
+assets/images/
+  ui/
+    button.png
+    icon.png
+  fx/
+    spark.png
+```
+
+<details open>
+<summary><b>Luau フォーマット</b> — デフォルト。<code>stripExtensions = true</code> の例</summary>
+
+<br>
+
+`images.luau`:
+
+```lua
+--!strict
+-- This file is auto-generated by rocas. Do not edit manually.
+
+type ImagesType = {
+	fx: {
+		spark: string,
+	},
+	ui: {
+		button: string,
+		icon: string,
+	},
+}
+
+local images: ImagesType = {
+	fx = {
+		spark = "rbxassetid://12345678",
+	},
+	ui = {
+		button = "rbxassetid://23456789",
+		icon = "rbxassetid://34567890",
+	},
+}
+
+return images
+```
+
+使い方:
+
+```lua
+local images = require(path.to.images)
+
+imageLabel.Image = images.ui.button
+```
+
+</details>
+
+<details>
+<summary><b>roblox-ts フォーマット</b> — <code>format = "roblox-ts"</code></summary>
+
+<br>
+
+`images.luau`:
+
+```lua
+-- This file is auto-generated by rocas. Do not edit manually.
+local images = {
+	fx = {
+		["spark.png"] = "rbxassetid://12345678",
+	},
+	ui = {
+		["button.png"] = "rbxassetid://23456789",
+		["icon.png"] = "rbxassetid://34567890",
+	},
+}
+
+return images
+```
+
+`images.d.ts`:
+
+```typescript
+// This file is auto-generated by rocas. Do not edit manually.
+declare const images: {
+	fx: {
+		"spark.png": string
+	}
+	ui: {
+		"button.png": string
+		"icon.png": string
+	}
+}
+
+export = images
+```
+
+使い方:
+
+```typescript
+import images from "shared/images";
+
+imageLabel.Image = images.ui["button.png"];
+```
+
+</details>
+
+## ライブラリとしての利用
+
+```javascript
+const { loadConfig, loadEnv, syncAll } = require("rocas");
+
+loadEnv();
+const config = loadConfig();
+await syncAll(config, process.env.ROCAS_API_KEY);
+```
+
+すべてのエクスポート — sync・コード生成・ロックファイル・Studio プラグインのヘルパー — は [API リファレンス](docs/api.ja.md)に記載しています。
+
+<details>
+<summary><b>カスタムコード生成フォーマットの登録</b></summary>
+
+<br>
+
+コード生成フォーマットはプラグイン式です。フォーマットは `name` と、書き出すファイル群を返す `render` 関数を持つオブジェクトです:
+
+```javascript
+const { registerCodegenFormat, listCodegenFormats } = require("rocas");
+
+registerCodegenFormat({
+	name: "json",
+	render(lock, varName, { stripExtensions = false } = {}) {
+		return [{ extension: ".json", content: JSON.stringify(lock, null, 2) }];
+	},
+});
+
+listCodegenFormats(); //=> ["luau", "roblox-ts", "json"]
+```
+
+返り値の各エントリは `{ extension, content }` で、グループの `output` パスの隣に書き出されます。登録すると、`rocas.toml` の各 sync グループで `format = "json"` として選択できます。
+
+</details>
+
+## 開発
+
+```bash
+git clone https://github.com/Plumvery/rocas.git
+cd rocas
+npm install
+npm test
+```
+
+<details>
+<summary><b>macOS: <code>npm install</code> が <code>'string.h' file not found</code> で失敗する</b></summary>
+
+<br>
+
+依存パッケージ `rbxm-parser` は、`node-gyp` でビルドされるネイティブモジュール `lz4` を引き込みます。Xcode がアクティブな developer directory になっている macOS では、`node-gyp` が SDK ヘッダーを解決できないことがあります:
+
+```text
+../lib/binding/lz4_binding.cc:1:10: fatal error: 'string.h' file not found
+```
+
+SDK を明示的に指定してください:
+
+```bash
+export SDKROOT="$(xcrun --show-sdk-path)"
+npm install
+```
+
+シェルプロファイルにこの `export` を追加すれば恒久化できます。
+
+</details>
+
+<details>
+<summary><b>プロジェクト構成</b></summary>
+
+<br>
+
+```text
+bin/
+  rocas.js          CLI エントリポイント
+src/
+  index.js          ライブラリの公開サーフェス
+  config.js         .env + rocas.toml の読み込み
+  sync.js           同期のオーケストレーション、拡張子 → assetType マッピング
+  upload.js         Open Cloud Assets API クライアント
+  asset-map.js      ロックファイルの読み込みとアセットマップ構築
+  codegen.js        コード生成
+  formats/          プラグイン式の出力フォーマット (luau, roblox-ts)
+  studio-plugin.js  Studio プラグインとマニフェストの生成
+  watch.js          ファイル監視
+test/
+  test.js           テストスイート (node test/test.js)
+```
+
+</details>
+
+## コントリビュート
+
+Issue や Pull Request を歓迎します — 開発ワークフローは [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) を参照してください。リリース履歴は [CHANGELOG.md](CHANGELOG.md) にあります。
+
+## ライセンス
+
+[MIT](LICENSE) © Plumvery

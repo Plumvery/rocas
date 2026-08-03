@@ -37,6 +37,7 @@
     "bin/",
     "rocas.toml.example",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "dependencies": {

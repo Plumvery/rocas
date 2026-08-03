@@ -17,7 +17,10 @@ and get typed Luau or roblox-ts bindings back, automatically.
 [CLI](#cli) ·
 [Configuration](#configuration) ·
 [Studio plugin](#roblox-studio-plugin) ·
-[Generated output](#generated-output)
+[Generated output](#generated-output) ·
+[API reference](docs/api.md)
+
+**English** | [日本語](README.ja.md)
 
 </div>
 
@@ -190,7 +193,7 @@ images.ui.button
 
 ## Change detection
 
-rocas keeps a `<name>.lock.json` next to each synced directory. An asset is **skipped** only when both of these match the lock:
+rocas keeps a `<name>.lock.json` inside each synced directory (for example `assets/images/images.lock.json`). An asset is **skipped** only when both of these match the lock:
 
 1. the file content hash, and
 2. a fingerprint of the upload-affecting `rocas.toml` config (the `[creator]` `type`/`id` and the resolved `assetType`).
@@ -378,6 +381,8 @@ const config = loadConfig();
 await syncAll(config, process.env.ROCAS_API_KEY);
 ```
 
+Every export — sync, codegen, lock-file, and Studio plugin helpers — is documented in the [API reference](docs/api.md).
+
 <details>
 <summary><b>Registering a custom codegen format</b></summary>
 
@@ -459,7 +464,7 @@ test/
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm test` before opening a PR.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow. Release history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
