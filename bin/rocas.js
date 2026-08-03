@@ -22,11 +22,11 @@ Options (watch):
   --debounce <ms> Debounce interval in ms (default: 10000)
 
 Options (plugin):
-  --output <path>  Output plugin path (default: Roblox Studio local Plugins folder)
+  --output, -o <path>  Output plugin path (default: Roblox Studio local Plugins folder)
 
 Options (manifest):
-  --output <path>  Output manifest ModuleScript path (default: src/shared/RocasManifest.luau)
-  --local          Use local Studio temporary asset IDs instead of lock files
+  --output, -o <path>  Output manifest ModuleScript path (default: src/shared/RocasManifest.luau)
+  --local              Use local Studio temporary asset IDs instead of lock files
 
 Environment:
   ROCAS_API_KEY    Roblox Open Cloud API key (or set in .env)
