@@ -2,7 +2,21 @@ const { readFileSync, existsSync, writeFileSync, readdirSync, statSync, mkdirSyn
 const { createHash } = require("crypto");
 const path = require("path");
 const { uploadAsset } = require("./upload");
+const { fetchDecalImageId } = require("./image-id");
 const { resolveCodegenFormat } = require("./formats");
+
+/**
+ * Image ID の解決対象となる assetType。
+ * Open Cloud が返すのは Decal ID なので、`ImageLabel.Image` 等が使える Image ID を別途引く。
+ */
+const IMAGE_ID_ASSET_TYPES = new Set(["Decal"]);
+
+/**
+ * 連続で何回解決に失敗したらそのグループの残りを諦めるか。
+ * 画像が非公開・審査中などで systematic に失敗する場合、全ファイルでリトライすると
+ * sync がいつまでも終わらないため。
+ */
+const IMAGE_ID_FAILURE_LIMIT = 3;
 
 /**
  * 拡張子 → Roblox assetType マッピング
@@ -78,6 +92,19 @@ function planSyncAction(cached, hash, fingerprint) {
 }
 
 /**
+ * このロックエントリが Image ID の解決を必要とするか。
+ * 画像 (Decal) で、アップロード済みで、まだ imageId を持っていないものだけが対象。
+ * 旧ロック (imageId 無し) は再アップロードせずに補完できる。
+ * @param {object | undefined} entry - lock[key]
+ * @param {string} assetType
+ */
+function needsImageId(entry, assetType) {
+	if (!IMAGE_ID_ASSET_TYPES.has(assetType)) return false;
+	if (!entry || entry.assetId == null) return false;
+	return entry.imageId == null || String(entry.imageId) === "";
+}
+
+/**
  * ディレクトリを再帰走査してファイル一覧を返す
  * @returns {{ filePath: string, relPath: string }[]}
  */
@@ -101,12 +128,13 @@ function walkDir(dir, base = dir) {
 
 /**
  * sync セクション 1 つを処理
- * @param {object} syncConfig - { name, path, output, assetType? }
+ * @param {object} syncConfig - { name, path, output, assetType?, resolveImageIds? }
  * @param {{ type: string, id: number }} creator
  * @param {string} apiKey
  * @param {string} cwd
+ * @param {{ resolveImageId?: (decalId: string, apiKey: string) => Promise<string> }} [options] - Image ID 解決の差し替え (テスト用)
  */
-async function syncOne(syncConfig, creator, apiKey, cwd) {
+async function syncOne(syncConfig, creator, apiKey, cwd, options = {}) {
 	const assetDir = path.resolve(cwd, syncConfig.path);
 	if (!existsSync(assetDir)) {
 		console.log(`[${syncConfig.name}] skip: directory not found (${syncConfig.path})`);
@@ -118,6 +146,40 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 
 	const files = walkDir(assetDir);
 	let changed = false;
+
+	const resolveImageId = options.resolveImageId || ((decalId, key) => fetchDecalImageId(decalId, { apiKey: key }));
+	const imageIdsEnabled = syncConfig.resolveImageIds !== false;
+	let imageIdFailures = 0;
+
+	/**
+	 * Decal エントリに中身の Image ID を補完する。
+	 * 解決できなくても sync 自体は失敗させず、Decal ID のまま次回の sync に持ち越す。
+	 * @returns {Promise<boolean>} エントリを書き換えたか (= ロックの保存が必要か)
+	 */
+	async function attachImageId(entry, assetType, relPath) {
+		if (!imageIdsEnabled) return false;
+		if (!needsImageId(entry, assetType)) return false;
+		if (imageIdFailures >= IMAGE_ID_FAILURE_LIMIT) return false;
+
+		try {
+			const imageId = await resolveImageId(entry.assetId, apiKey);
+			entry.imageId = String(imageId);
+			imageIdFailures = 0;
+			console.log(`[${syncConfig.name}] image id: ${relPath} → rbxassetid://${entry.imageId}`);
+			return true;
+		} catch (error) {
+			imageIdFailures++;
+			console.warn(
+				`[${syncConfig.name}] warning: could not resolve the image id of ${relPath} (${error.message}); keeping the decal id`,
+			);
+			if (imageIdFailures >= IMAGE_ID_FAILURE_LIMIT) {
+				console.warn(
+					`[${syncConfig.name}] warning: image id resolution failed ${IMAGE_ID_FAILURE_LIMIT} times in a row; skipping it for the rest of this group`,
+				);
+			}
+			return false;
+		}
+	}
 
 	for (const { filePath, relPath } of files) {
 		const ext = path.extname(filePath).toLowerCase();
@@ -137,6 +199,11 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 
 		if (action === "reuse") {
 			console.log(`[${syncConfig.name}] skip: ${relPath} (unchanged)`);
+			// 上げ直しは不要でも、Image ID 未解決の画像 (旧ロック・前回失敗) はここで補完する
+			if (await attachImageId(cached, assetType, relPath)) {
+				lock[key] = cached;
+				changed = true;
+			}
 			continue;
 		}
 
@@ -144,7 +211,9 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 		// 設定だけ記録して、次回以降の rocas.toml 変更を検知できるようにする。
 		if (action === "rebaseline") {
 			console.log(`[${syncConfig.name}] skip: ${relPath} (unchanged; recording config baseline)`);
-			lock[key] = { ...cached, config: fingerprint };
+			const entry = { ...cached, config: fingerprint };
+			await attachImageId(entry, assetType, relPath);
+			lock[key] = entry;
 			changed = true;
 			continue;
 		}
@@ -160,7 +229,10 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 		console.log(`[${syncConfig.name}] uploading: ${relPath} (${reason}) ...`);
 		const assetId = await uploadAsset(filePath, assetType, apiKey, creator);
 		console.log(`[${syncConfig.name}] done: ${relPath} → rbxassetid://${assetId}`);
-		lock[key] = { assetId: String(assetId), hash, config: fingerprint };
+		// 新規エントリなので、assetType が Decal から変わった場合も古い imageId は引き継がない
+		const entry = { assetId: String(assetId), hash, config: fingerprint };
+		await attachImageId(entry, assetType, relPath);
+		lock[key] = entry;
 		changed = true;
 	}
 
@@ -205,10 +277,19 @@ async function syncOne(syncConfig, creator, apiKey, cwd) {
 /**
  * 全 sync セクションを順次処理
  */
-async function syncAll(config, apiKey, cwd = process.cwd()) {
+async function syncAll(config, apiKey, cwd = process.cwd(), options = {}) {
 	for (const syncConfig of config.sync) {
-		await syncOne(syncConfig, config.creator, apiKey, cwd);
+		await syncOne(syncConfig, config.creator, apiKey, cwd, options);
 	}
 }
 
-module.exports = { syncAll, syncOne, walkDir, fileHash, configFingerprint, planSyncAction, EXT_TO_ASSET_TYPE };
+module.exports = {
+	syncAll,
+	syncOne,
+	walkDir,
+	fileHash,
+	configFingerprint,
+	planSyncAction,
+	needsImageId,
+	EXT_TO_ASSET_TYPE,
+};

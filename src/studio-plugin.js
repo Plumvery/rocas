@@ -2,7 +2,7 @@ const { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } = require
 const path = require("path");
 const { RobloxFile, Script } = require("rbxm-parser");
 const { EXT_TO_ASSET_TYPE, walkDir } = require("./sync");
-const { assetIdString, normalizeAssetPath } = require("./asset-map");
+const { assetIdString, normalizeAssetPath, resolveEntryAssetId } = require("./asset-map");
 
 const DEFAULT_PLUGIN_FILE_NAME = "rocas-studio-plugin.rbxm";
 const DEFAULT_MANIFEST_OUTPUT_PATH = path.join("src", "shared", "RocasManifest.luau");
@@ -72,7 +72,8 @@ function buildStudioPluginManifest(config, cwd = process.cwd(), options = {}) {
 		const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 
 		for (const [lockKey, entry] of Object.entries(lock)) {
-			if (!entry || entry.assetId == null) {
+			const entryAssetId = resolveEntryAssetId(entry);
+			if (entryAssetId == null) {
 				continue;
 			}
 
@@ -84,7 +85,7 @@ function buildStudioPluginManifest(config, cwd = process.cwd(), options = {}) {
 				path: assetPath,
 				name: fileNameFromAssetPath(assetPath),
 				sourcePath,
-				assetId: assetIdString(entry.assetId),
+				assetId: assetIdString(entryAssetId),
 				assetType: inferAssetType(assetPath, syncConfig),
 				source: "uploaded",
 			});

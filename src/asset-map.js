@@ -10,6 +10,26 @@ function assetIdString(assetId) {
 	return value.startsWith("rbxassetid://") ? value : `rbxassetid://${value}`;
 }
 
+/**
+ * ロックエントリから実際に参照すべきアセット ID を返す。
+ *
+ * 画像は Open Cloud が Decal の ID を返すが、`ImageLabel.Image` などが要求するのは
+ * 中身の Image ID。sync 時に解決できていれば `imageId` に入っているのでそちらを優先し、
+ * 未解決 (解決失敗・旧ロック・非画像アセット) なら `assetId` にフォールバックする。
+ * @param {object | undefined | null} entry - lock[key]
+ * @returns {string | null}
+ */
+function resolveEntryAssetId(entry) {
+	if (!entry) return null;
+	if (entry.imageId != null && String(entry.imageId) !== "") {
+		return String(entry.imageId);
+	}
+	if (entry.assetId != null && String(entry.assetId) !== "") {
+		return String(entry.assetId);
+	}
+	return null;
+}
+
 function lockPathForSync(syncConfig, cwd = process.cwd()) {
 	const assetDir = path.resolve(cwd, syncConfig.path);
 	return path.join(assetDir, `${syncConfig.name}.lock.json`);
@@ -37,12 +57,13 @@ function buildAssetMap(config, cwd = process.cwd()) {
 		const group = {};
 
 		for (const [lockKey, entry] of Object.entries(lock)) {
-			if (!entry || entry.assetId == null) {
+			const entryAssetId = resolveEntryAssetId(entry);
+			if (entryAssetId == null) {
 				continue;
 			}
 
 			const normalizedKey = normalizeAssetPath(lockKey);
-			const assetId = assetIdString(entry.assetId);
+			const assetId = assetIdString(entryAssetId);
 			const sourcePath = normalizeAssetPath(path.resolve(assetDir, normalizedKey));
 			const cwdRelativePath = normalizeAssetPath(path.relative(cwd, sourcePath));
 
@@ -65,4 +86,5 @@ module.exports = {
 	loadLockForSync,
 	lockPathForSync,
 	normalizeAssetPath,
+	resolveEntryAssetId,
 };

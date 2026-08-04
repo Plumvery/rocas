@@ -10,12 +10,13 @@ const rocas = require("rocas");
 
 - [共通のデータ形状](#共通のデータ形状) — [`Config`](#config)、[`Lock`](#lock)、[`Manifest`](#manifest)
 - [設定](#設定) — [`loadEnv`](#loadenvcwd)、[`loadConfig`](#loadconfigcwd)
-- [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
+- [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd-options)、[`syncOne`](#synconesyncconfig-creator-apikey-cwd-options)、[`needsImageId`](#needsimageidentry-assettype)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
 - [監視](#監視) — [`watchAll`](#watchallconfig-apikey-options)
 - [アップロード](#アップロード) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)
+- [Image ID](#image-id) — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options)、[`extractImageIdFromAssetBody`](#extractimageidfromassetbodybody)
 - [コード生成](#コード生成) — [`generateLuau`](#generateluaulock-varname-options)、[`generateDts`](#generatedtslock-varname-options)
 - [コード生成フォーマット](#コード生成フォーマット) — [`registerCodegenFormat`](#registercodegenformatformat)、[`listCodegenFormats`](#listcodegenformats)、[`resolveCodegenFormat`](#resolvecodegenformatformatname)、[`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
-- [ロックファイルとアセットマップ](#ロックファイルとアセットマップ) — [`lockPathForSync`](#lockpathforsyncsyncconfig-cwd)、[`loadLockForSync`](#loadlockforsyncsyncconfig-cwd)、[`buildAssetMap`](#buildassetmapconfig-cwd)、[`normalizeAssetPath`](#normalizeassetpathvalue)
+- [ロックファイルとアセットマップ](#ロックファイルとアセットマップ) — [`lockPathForSync`](#lockpathforsyncsyncconfig-cwd)、[`loadLockForSync`](#loadlockforsyncsyncconfig-cwd)、[`resolveEntryAssetId`](#resolveentryassetidentry)、[`buildAssetMap`](#buildassetmapconfig-cwd)、[`normalizeAssetPath`](#normalizeassetpathvalue)
 - [Studio プラグインとマニフェスト](#studio-プラグインとマニフェスト) — [`writeStudioPlugin`](#writestudiopluginconfig-cwd-outputpath-options)、[`writeStudioManifest`](#writestudiomanifestconfig-cwd-outputpath-options) ほか低レベルヘルパー
 
 ## 共通のデータ形状
@@ -38,6 +39,7 @@ const rocas = require("rocas");
       assetType: "Decal",          // 任意 — 全ファイルの Roblox assetType を強制
       format: "luau",              // 任意 — コード生成フォーマット名（デフォルト "luau"）
       stripExtensions: false,      // 任意 — 生成キーからファイル拡張子を除去
+      resolveImageIds: true,       // 任意 — Decal ID から Image ID を解決（デフォルト true）
     },
   ],
 }
@@ -50,12 +52,15 @@ const rocas = require("rocas");
 ```javascript
 {
   "ui/button.png": {
-    assetId: "12345678",     // 数値文字列。"rbxassetid://" プレフィックスなし
+    assetId: "12345679",     // 数値文字列。"rbxassetid://" プレフィックスなし
+    imageId: "12345678",     // 画像のみ — Decal の中身の Image ID。未解決なら無い
     hash: "…",               // ファイル内容の SHA-256
     config: "…",             // creator + assetType のフィンガープリント（16 進 16 文字。0.1.2 より前のロックには無い）
   },
 }
 ```
+
+画像の `assetId` は Open Cloud が返した **Decal** の ID で、`imageId` はその中身の Image ID です。ロックを読む側はすべて [`resolveEntryAssetId`](#resolveentryassetidentry) を通し、`imageId` を優先します。
 
 ### `Manifest`
 
@@ -96,16 +101,29 @@ const rocas = require("rocas");
 
 ## 同期
 
-### `syncAll(config, apiKey, cwd?)`
+### `syncAll(config, apiKey, cwd?, options?)`
 
 `async`。すべての `[[sync]]` グループを順番にフル同期します:
 
 1. `sync.path` を再帰スキャン（ドットファイルと `*.lock.json` は除外）。
 2. 各ファイルについて、**upload**（新規・内容変更・creator/assetType 設定の変更）、**skip**（ロックのハッシュと設定フィンガープリントが両方一致）、**rebaseline**（フィンガープリント導入前のロックと内容一致 — アップロードせずフィンガープリントだけ記録）のいずれかを決定。
-3. 更新されたロックファイルを書き込み。
-4. `sync.output` が設定されていればグループのフォーマットでコード生成し、内容が変わったファイルのみ書き込み。
+3. `imageId` を持たない `Decal` エントリの [Image ID](#fetchdecalimageiddecalid-options) を解決。skip / rebaseline したエントリも対象なので、既存ロックは再アップロードなしで補完されます。グループに `resolveImageIds = false` を指定すると無効化されます。
+4. 更新されたロックファイルを書き込み。
+5. `sync.output` が設定されていればグループのフォーマットでコード生成し、内容が変わったファイルのみ書き込み。
 
 ディレクトリが存在しないグループはログを出してスキップします。未対応の拡張子のファイル（かつ `assetType` 上書きなし）もスキップされます。
+
+Image ID の解決が失敗しても同期は止まりません。警告を出して Decal ID を残し、次回の実行で再試行します。3 回連続で失敗するとそのグループの残りではスキップします。
+
+- `options.resolveImageId` — `(decalId, apiKey) => Promise<string>`。[`fetchDecalImageId`](#fetchdecalimageiddecalid-options) の差し替え。主にテストやオフライン実行用。
+
+### `syncOne(syncConfig, creator, apiKey, cwd?, options?)`
+
+`async`。`syncAll` の単一グループ版。`[[sync]]` エントリ 1 つと `creator` を直接受け取ります。
+
+### `needsImageId(entry, assetType)`
+
+[`Lock`](#lock) エントリがアップロード済みの `Decal` で、まだ `imageId` を持っていない場合に `true`。
 
 ### `EXT_TO_ASSET_TYPE`
 
@@ -133,6 +151,27 @@ const rocas = require("rocas");
 - `creator` — `{ type: "user" | "group", id }`。
 - アセット ID を**数値文字列**（`rbxassetid://` プレフィックスなし）で返します。
 - 200 以外のレスポンスや失敗したオペレーションでは throw します。ファイルパートの `Content-Type` は拡張子から決まります。
+- 画像の場合、返るのは **Decal** の ID です — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options) を参照。
+
+## Image ID
+
+### `fetchDecalImageId(decalId, options?)`
+
+`async`。`Decal` アセットをダウンロードし、その中身の Image ID を**数値文字列**で返します（`ImageLabel.Image` などが要求する値）。裸の ID でも `rbxassetid://…` 形式でも受け付けます。
+
+アセット配信は「JSON で場所を引く → CDN から gzip された本体を取る」の 2 ホップで、次の順に試します:
+
+1. `apis.roblox.com/asset-delivery-api/v1/assetId/{id}` に `x-api-key` ヘッダー付き — `options.apiKey` がある場合のみ。
+2. `assetdelivery.roblox.com/v1/assetId/{id}` を認証なしで — 古い公開アセット向けのフォールバック。2025年4月以降、認証なしのアセット配信はほとんどの資産で拒否されるため、これ単独で成功することは稀です。
+
+- `options.apiKey` — Open Cloud API キー。Assets の**読み取り**権限が必要。
+- `options.attempts`（デフォルト `3`）/ `options.retryDelayMs`（デフォルト `2000`）— アップロード直後はまだ配信されないことがあるため。
+- `options.fetchAsset` — `(url, headers) => Promise<Buffer|string>`。組み込みの取得処理を差し替えます。
+- すべてのエンドポイントが失敗した場合、または本体に Image ID が無かった場合は throw します。
+
+### `extractImageIdFromAssetBody(body)`
+
+ダウンロードした Decal から Image ID を取り出します。`Texture` プロパティを優先し、無ければ本体内で最初に見つかったアセット URL にフォールバックします。XML / バイナリどちらのモデル形式にも対応。見つからない場合は `null` を返します。
 
 ## コード生成
 
@@ -198,9 +237,13 @@ const rocas = require("rocas");
 
 グループのロックファイルをパースして [`Lock`](#lock) を返します。ファイルが無い場合は `{}`。
 
+### `resolveEntryAssetId(entry)`
+
+[`Lock`](#lock) エントリを実際に参照すべき ID。`imageId` があればそれ、無ければ `assetId`、どちらも無ければ `null`。コード生成・[`buildAssetMap`](#buildassetmapconfig-cwd)・Studio マニフェストが使います。
+
 ### `buildAssetMap(config, cwd?)`
 
-全グループのロックを 1 つのルックアップ構造に集約します（`assetId` の無いエントリはスキップ）:
+全グループのロックを 1 つのルックアップ構造に集約します（使える ID の無いエントリはスキップ）:
 
 ```javascript
 {

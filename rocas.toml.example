@@ -40,6 +40,9 @@ output = "src/shared/videos"
 #         "roblox-ts" generates a .luau + .d.ts pair for roblox-ts projects
 # stripExtensions: true removes file extensions from keys
 #   e.g. images.ui.button instead of images.ui["button.png"]
+# resolveImageIds: true (default) resolves the decal id Open Cloud returns for an
+#   image into the image id inside it, so ImageLabel.Image works. Needs an API key
+#   with read access to Assets. Set it to false to always emit the decal id.
 
 # Example: roblox-ts project
 # [[sync]]

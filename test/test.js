@@ -6,9 +6,10 @@ const { RobloxFile } = require("rbxm-parser");
 const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("../src/formats");
-const { EXT_TO_ASSET_TYPE, syncOne, configFingerprint, planSyncAction, fileHash } = require("../src/sync");
+const { EXT_TO_ASSET_TYPE, syncOne, configFingerprint, planSyncAction, fileHash, needsImageId } = require("../src/sync");
 const { contentTypeFor } = require("../src/upload");
-const { buildAssetMap, lockPathForSync } = require("../src/asset-map");
+const { fetchDecalImageId, extractImageIdFromAssetBody, parseAssetLocation, assetDeliveryEndpoints } = require("../src/image-id");
+const { buildAssetMap, lockPathForSync, resolveEntryAssetId } = require("../src/asset-map");
 const {
 	buildStudioPluginManifest,
 	defaultStudioPluginOutputPath,
@@ -241,6 +242,75 @@ assert.strictEqual(contentTypeFor("scene.glb"), "model/gltf-binary");
 assert.strictEqual(contentTypeFor("unknown.bin"), "application/octet-stream");
 console.log("  upload content type mapping OK");
 
+// --- Decal image id extraction ---
+console.log("Testing decal image id extraction...");
+
+const decalXml =
+	'<roblox version="4">\n' +
+	'\t<Item class="Decal" referent="RBX0">\n' +
+	"\t\t<Properties>\n" +
+	'\t\t\t<string name="Name">button</string>\n' +
+	'\t\t\t<Content name="Other"><url>rbxassetid://111</url></Content>\n' +
+	'\t\t\t<Content name="Texture"><url>http://www.roblox.com/asset/?id=555</url></Content>\n' +
+	"\t\t</Properties>\n" +
+	"\t</Item>\n" +
+	"</roblox>\n";
+
+assert.strictEqual(extractImageIdFromAssetBody(decalXml), "555", "Texture property wins over other urls");
+assert.strictEqual(extractImageIdFromAssetBody(Buffer.from(decalXml)), "555", "works on a Buffer");
+assert.strictEqual(
+	extractImageIdFromAssetBody(Buffer.from("<roblox!\x89\xff\r\n\x1a\n\x00INSTrbxassetid://777\x00", "latin1")),
+	"777",
+	"binary rbxm body still yields the url",
+);
+assert.strictEqual(extractImageIdFromAssetBody("no ids here"), null);
+assert.strictEqual(extractImageIdFromAssetBody(null), null);
+assert.strictEqual(
+	parseAssetLocation(JSON.stringify({ location: "https://c0.rbxcdn.com/abc" })),
+	"https://c0.rbxcdn.com/abc",
+	"single-location shape (assetdelivery v1/assetId)",
+);
+assert.strictEqual(
+	parseAssetLocation(JSON.stringify({ locations: [{ location: "https://c0.rbxcdn.com/def" }] })),
+	"https://c0.rbxcdn.com/def",
+	"multi-location shape (assetdelivery v2)",
+);
+assert.strictEqual(parseAssetLocation("not json"), null);
+assert.strictEqual(parseAssetLocation(JSON.stringify({ locations: [] })), null);
+
+// API キーがあれば Open Cloud 経由を先に試し、無ければ旧エンドポイントのみ
+const keyedEndpoints = assetDeliveryEndpoints("123", "secret-key");
+assert.strictEqual(keyedEndpoints.length, 2);
+assert.strictEqual(keyedEndpoints[0].url, "https://apis.roblox.com/asset-delivery-api/v1/assetId/123");
+assert.strictEqual(keyedEndpoints[0].headers["x-api-key"], "secret-key");
+assert.strictEqual(keyedEndpoints[1].url, "https://assetdelivery.roblox.com/v1/assetId/123");
+assert.deepStrictEqual(keyedEndpoints[1].headers, {}, "legacy endpoint is unauthenticated");
+assert.strictEqual(assetDeliveryEndpoints("123", null).length, 1, "no api key = legacy only");
+console.log("  decal image id extraction OK");
+
+// --- Lock entry asset id resolution ---
+console.log("Testing lock entry asset id resolution...");
+
+assert.strictEqual(resolveEntryAssetId({ assetId: "111", imageId: "222" }), "222", "imageId wins");
+assert.strictEqual(resolveEntryAssetId({ assetId: "111" }), "111", "falls back to assetId");
+assert.strictEqual(resolveEntryAssetId({ assetId: "111", imageId: "" }), "111", "empty imageId ignored");
+assert.strictEqual(resolveEntryAssetId({}), null);
+assert.strictEqual(resolveEntryAssetId(undefined), null);
+
+assert.strictEqual(needsImageId({ assetId: "111" }, "Decal"), true);
+assert.strictEqual(needsImageId({ assetId: "111", imageId: "222" }, "Decal"), false, "already resolved");
+assert.strictEqual(needsImageId({ assetId: "111" }, "Audio"), false, "only images carry a decal wrapper");
+assert.strictEqual(needsImageId(undefined, "Decal"), false);
+
+const imageIdLock = {
+	"ui/button.png": { assetId: "111", imageId: "222" },
+	"ui/icon.png": { assetId: "333" },
+};
+const imageIdTree = buildTree(imageIdLock);
+assert.strictEqual(imageIdTree.ui["button.png"], "rbxassetid://222", "codegen emits the image id");
+assert.strictEqual(imageIdTree.ui["icon.png"], "rbxassetid://333", "unresolved entries keep the decal id");
+console.log("  lock entry asset id resolution OK");
+
 // --- Asset map from lock files ---
 console.log("Testing asset map generation...");
 
@@ -345,6 +415,39 @@ assert.strictEqual(
 assert.strictEqual(resolveStudioPluginOutputPath(tempDir, "custom/plugin.luau"), path.resolve(tempDir, "custom/plugin.luau"));
 console.log("  Studio plugin generation OK");
 
+// --- Asset map / manifest prefer the resolved image id ---
+console.log("Testing image id propagation into asset map and manifest...");
+
+const imageIdDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-imageid-test-"));
+const imageIdAssetDir = path.join(imageIdDir, "assets", "images");
+fs.mkdirSync(path.join(imageIdAssetDir, "ui"), { recursive: true });
+fs.writeFileSync(path.join(imageIdAssetDir, "ui", "button.png"), Buffer.from([1, 2, 3]));
+fs.writeFileSync(
+	path.join(imageIdAssetDir, "images.lock.json"),
+	JSON.stringify(
+		{
+			"ui/button.png": { assetId: "111", imageId: "222", hash: "abc" },
+			"ui/legacy.png": { assetId: "333", hash: "def" },
+		},
+		null,
+		2,
+	),
+);
+
+const imageIdConfig = {
+	creator: { type: "user", id: 12345 },
+	sync: [{ name: "images", path: "assets/images" }],
+};
+const imageIdMap = buildAssetMap(imageIdConfig, imageIdDir);
+assert.strictEqual(imageIdMap.groups.images["ui/button.png"], "rbxassetid://222", "asset map uses the image id");
+assert.strictEqual(imageIdMap.groups.images["ui/legacy.png"], "rbxassetid://333", "unresolved falls back");
+
+const imageIdManifest = buildStudioPluginManifest(imageIdConfig, imageIdDir);
+assert.strictEqual(imageIdManifest.assets[0].path, "ui/button.png");
+assert.strictEqual(imageIdManifest.assets[0].assetId, "rbxassetid://222", "manifest uses the image id");
+assert.strictEqual(imageIdManifest.assets[1].assetId, "rbxassetid://333");
+console.log("  image id propagation OK");
+
 (async () => {
 	// --- syncOne codegen defaults ---
 	console.log("Testing syncOne codegen defaults...");
@@ -428,22 +531,31 @@ console.log("  Studio plugin generation OK");
 	const fpSync = { name: "images", path: "assets/images" };
 	const expectedFp = configFingerprint(fpCreator, "Decal");
 
+	// Image ID の解決はネットワークを叩くので、オフラインテストでは差し替える
+	const stubImageId = { resolveImageId: async (decalId) => `${decalId}0` };
+
 	// (1) reuse: hash と config が一致 → アップロードせずスキップ、ロックは据え置き
 	fs.writeFileSync(
 		fpLockPath,
-		JSON.stringify({ "ui/button.png": { assetId: "111", hash: fpHash, config: expectedFp } }, null, 2),
+		JSON.stringify(
+			{ "ui/button.png": { assetId: "111", imageId: "999", hash: fpHash, config: expectedFp } },
+			null,
+			2,
+		),
 	);
-	await syncOne(fpSync, fpCreator, "unused-api-key", fpDir);
+	await syncOne(fpSync, fpCreator, "unused-api-key", fpDir, stubImageId);
 	let fpLock = JSON.parse(fs.readFileSync(fpLockPath, "utf8"));
 	assert.strictEqual(fpLock["ui/button.png"].assetId, "111", "reuse keeps assetId");
 	assert.strictEqual(fpLock["ui/button.png"].config, expectedFp, "reuse keeps config");
+	assert.strictEqual(fpLock["ui/button.png"].imageId, "999", "reuse keeps an already-resolved imageId");
 
 	// (2) rebaseline: 旧ロック (config 無し) → 再アップロードせず config を記録する
 	fs.writeFileSync(fpLockPath, JSON.stringify({ "ui/button.png": { assetId: "111", hash: fpHash } }, null, 2));
-	await syncOne(fpSync, fpCreator, "unused-api-key", fpDir);
+	await syncOne(fpSync, fpCreator, "unused-api-key", fpDir, stubImageId);
 	fpLock = JSON.parse(fs.readFileSync(fpLockPath, "utf8"));
 	assert.strictEqual(fpLock["ui/button.png"].assetId, "111", "rebaseline keeps assetId (no re-upload)");
 	assert.strictEqual(fpLock["ui/button.png"].config, expectedFp, "rebaseline records config baseline");
+	assert.strictEqual(fpLock["ui/button.png"].imageId, "1110", "rebaseline backfills the image id");
 	// 設定 (creator) が変わった場合に再アップロードされる判断は planSyncAction の単体テストで担保
 	// (実アップロードは Open Cloud への通信が必要なためここでは実行しない)。
 	assert.strictEqual(
@@ -452,6 +564,154 @@ console.log("  Studio plugin generation OK");
 		"creator change after rebaseline → upload",
 	);
 	console.log("  syncOne config-aware change detection OK");
+
+	// --- fetchDecalImageId (offline; injected fetcher) ---
+	console.log("Testing fetchDecalImageId...");
+
+	const noWait = async () => {};
+	const cdnLocation = JSON.stringify({ location: "https://cdn.example/abc" });
+
+	// API キーがあれば Open Cloud 経由。JSON で場所を引いてから本体を取りに行く 2 ホップ
+	const keyedCalls = [];
+	assert.strictEqual(
+		await fetchDecalImageId("123", {
+			apiKey: "secret-key",
+			wait: noWait,
+			fetchAsset: async (url, headers) => {
+				keyedCalls.push({ url, headers });
+				return url.includes("cdn.example") ? decalXml : cdnLocation;
+			},
+		}),
+		"555",
+	);
+	assert.strictEqual(keyedCalls.length, 2, "location lookup + asset body");
+	assert.strictEqual(keyedCalls[0].url, "https://apis.roblox.com/asset-delivery-api/v1/assetId/123");
+	assert.strictEqual(keyedCalls[0].headers["x-api-key"], "secret-key");
+	assert.strictEqual(keyedCalls[1].url, "https://cdn.example/abc");
+
+	// "rbxassetid://" 前置きも受け付ける
+	assert.strictEqual(
+		await fetchDecalImageId("rbxassetid://123", {
+			wait: noWait,
+			fetchAsset: async (url) => (url.includes("cdn.example") ? decalXml : cdnLocation),
+		}),
+		"555",
+	);
+
+	// Open Cloud が弾かれたら旧 assetdelivery にフォールバックする
+	const fallbackCalls = [];
+	assert.strictEqual(
+		await fetchDecalImageId("123", {
+			apiKey: "secret-key",
+			wait: noWait,
+			fetchAsset: async (url) => {
+				fallbackCalls.push(url);
+				if (url.includes("apis.roblox.com")) throw new Error("GET failed (403)");
+				return url.includes("cdn.example") ? decalXml : cdnLocation;
+			},
+		}),
+		"555",
+	);
+	assert.strictEqual(fallbackCalls.length, 3, "open cloud -> legacy -> cdn");
+	assert(fallbackCalls[1].includes("assetdelivery.roblox.com"));
+
+	// アップロード直後に配信が間に合わないケース: リトライで拾う
+	let attemptCount = 0;
+	assert.strictEqual(
+		await fetchDecalImageId("123", {
+			wait: noWait,
+			fetchAsset: async (url) => {
+				attemptCount++;
+				if (attemptCount <= 2) throw new Error("GET failed (404)");
+				return url.includes("cdn.example") ? decalXml : cdnLocation;
+			},
+		}),
+		"555",
+	);
+	assert(attemptCount >= 3, "retried before succeeding");
+
+	await assert.rejects(
+		() => fetchDecalImageId("123", { attempts: 2, wait: noWait, fetchAsset: async () => "" }),
+		/could not resolve the image id of decal 123/,
+	);
+	await assert.rejects(
+		() =>
+			fetchDecalImageId("123", {
+				attempts: 1,
+				wait: noWait,
+				fetchAsset: async () => {
+					throw new Error("boom");
+				},
+			}),
+		/could not resolve the image id of decal 123: boom/,
+	);
+	await assert.rejects(() => fetchDecalImageId("not-an-id"), /invalid decal asset id: not-an-id/);
+	console.log("  fetchDecalImageId OK");
+
+	// --- syncOne image id backfill (offline) ---
+	console.log("Testing syncOne image id backfill...");
+
+	function makeBackfillDir(files) {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-backfill-test-"));
+		const assetDir = path.join(dir, "assets", "images");
+		fs.mkdirSync(assetDir, { recursive: true });
+		const lockEntries = {};
+		for (const [name, contents] of Object.entries(files)) {
+			const filePath = path.join(assetDir, name);
+			fs.writeFileSync(filePath, contents);
+			lockEntries[name] = { assetId: name.replace(/\D/g, "") || "1", hash: fileHash(filePath) };
+		}
+		fs.writeFileSync(path.join(assetDir, "images.lock.json"), JSON.stringify(lockEntries, null, 2));
+		return { dir, lockPath: path.join(assetDir, "images.lock.json") };
+	}
+
+	const backfillCreator = { type: "user", id: 12345 };
+	const backfillSync = { name: "images", path: "assets/images" };
+
+	// (1) 解決に失敗しても sync は落ちず、Decal ID のまま残る
+	const failing = makeBackfillDir({ "1.png": "one" });
+	await syncOne(backfillSync, backfillCreator, "unused-api-key", failing.dir, {
+		resolveImageId: async () => {
+			throw new Error("403");
+		},
+	});
+	const failingLock = JSON.parse(fs.readFileSync(failing.lockPath, "utf8"));
+	assert.strictEqual(failingLock["1.png"].assetId, "1", "failure keeps the decal id");
+	assert.strictEqual(failingLock["1.png"].imageId, undefined, "failure records no imageId");
+
+	// (2) resolveImageIds = false なら解決を試みない
+	let optOutCalls = 0;
+	const optOut = makeBackfillDir({ "1.png": "one" });
+	await syncOne({ ...backfillSync, resolveImageIds: false }, backfillCreator, "unused-api-key", optOut.dir, {
+		resolveImageId: async () => {
+			optOutCalls++;
+			return "999";
+		},
+	});
+	assert.strictEqual(optOutCalls, 0, "resolveImageIds = false disables resolution");
+
+	// (3) 連続失敗が続いたらグループの残りは諦める (全ファイルでリトライしない)
+	let breakerCalls = 0;
+	const breaker = makeBackfillDir({ "1.png": "a", "2.png": "b", "3.png": "c", "4.png": "d", "5.png": "e" });
+	await syncOne(backfillSync, backfillCreator, "unused-api-key", breaker.dir, {
+		resolveImageId: async () => {
+			breakerCalls++;
+			throw new Error("403");
+		},
+	});
+	assert.strictEqual(breakerCalls, 3, "gives up after 3 consecutive failures");
+
+	// (4) 音声など非画像は Decal ラッパーが無いので解決しない
+	let audioCalls = 0;
+	const audio = makeBackfillDir({ "1.mp3": "sound" });
+	await syncOne(backfillSync, backfillCreator, "unused-api-key", audio.dir, {
+		resolveImageId: async () => {
+			audioCalls++;
+			return "999";
+		},
+	});
+	assert.strictEqual(audioCalls, 0, "non-image asset types are left alone");
+	console.log("  syncOne image id backfill OK");
 
 	console.log("\nAll tests passed!");
 })().catch((error) => {

@@ -1,6 +1,6 @@
 {
   "name": "rocas",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Roblox Open Cloud Asset Sync",
   "main": "src/index.js",
   "bin": {

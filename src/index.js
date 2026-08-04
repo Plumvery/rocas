@@ -4,7 +4,8 @@ const { uploadAsset } = require("./upload");
 const { generateLuau, generateDts } = require("./codegen");
 const { EXT_TO_ASSET_TYPE } = require("./sync");
 const { watchAll } = require("./watch");
-const { buildAssetMap, loadLockForSync, lockPathForSync, normalizeAssetPath } = require("./asset-map");
+const { fetchDecalImageId, extractImageIdFromAssetBody } = require("./image-id");
+const { buildAssetMap, loadLockForSync, lockPathForSync, normalizeAssetPath, resolveEntryAssetId } = require("./asset-map");
 const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("./formats");
 const {
 	buildStudioPluginManifest,
@@ -26,6 +27,8 @@ module.exports = {
 	syncAll,
 	watchAll,
 	uploadAsset,
+	fetchDecalImageId,
+	extractImageIdFromAssetBody,
 	generateLuau,
 	generateDts,
 	EXT_TO_ASSET_TYPE,
@@ -42,6 +45,7 @@ module.exports = {
 	lockPathForSync,
 	normalizeAssetPath,
 	registerCodegenFormat,
+	resolveEntryAssetId,
 	resolveManifestOutputPath,
 	resolveCodegenFormat,
 	resolveStudioPluginOutputPath,
