@@ -5,6 +5,8 @@
  * and are converted into nested objects.
  */
 
+const { resolveEntryAssetId } = require("./asset-map");
+
 /**
  * フラットなキーからネスト構造を構築
  * "a/b/c.png" → { a: { b: { "c.png": "rbxassetid://..." } } }
@@ -15,6 +17,10 @@ function buildTree(lock, options = {}) {
 	const tree = {};
 	const keys = Object.keys(lock).sort();
 	for (const key of keys) {
+		// 画像は Decal ID ではなく解決済みの Image ID を優先する (resolveEntryAssetId)
+		const assetId = resolveEntryAssetId(lock[key]);
+		if (assetId == null) continue;
+
 		const parts = key.split("/");
 		let node = tree;
 		for (let i = 0; i < parts.length - 1; i++) {
@@ -27,7 +33,7 @@ function buildTree(lock, options = {}) {
 		if (stripExtensions) {
 			leafKey = leafKey.replace(/\.[^.]+$/, "");
 		}
-		node[leafKey] = `rbxassetid://${lock[key].assetId}`;
+		node[leafKey] = `rbxassetid://${assetId}`;
 	}
 	return tree;
 }

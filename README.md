@@ -53,7 +53,7 @@ No manual asset ID copy-pasting, no stale IDs, no untyped string tables.
 | | |
 |---|---|
 | **Node.js** | 18 or newer |
-| **Roblox Open Cloud API key** | Required for `sync` and `watch` only. Create one in the [Creator Dashboard](https://create.roblox.com/dashboard/credentials) with Assets read/write permissions for your user or group. |
+| **Roblox Open Cloud API key** | Required for `sync` and `watch` only. Create one in the [Creator Dashboard](https://create.roblox.com/dashboard/credentials) with Assets read/write permissions for your user or group. The **read** permission is what lets rocas resolve [image IDs](#image-ids). |
 
 > [!NOTE]
 > `rocas plugin` and `rocas manifest --local` work entirely offline — no API key needed.
@@ -152,6 +152,23 @@ rocas watch
 
 Asset types are detected from the file extension, and can be overridden per group with `assetType`.
 
+### Image IDs
+
+Open Cloud uploads images as `Decal` assets, and the ID it returns is the **decal**, not the image inside it. A decal ID works for `Decal.Texture`, but `ImageLabel.Image`, `ImageButton.Image`, `ParticleEmitter.Texture`, and friends want the **image** ID.
+
+So after uploading an image, rocas downloads the decal and reads the image ID out of it, storing it as `imageId` in the lock file. Generated code, asset maps, and the Studio manifest all prefer `imageId` and fall back to the decal ID when it isn't there.
+
+```json
+{
+  "ui/button.png": { "assetId": "12345679", "imageId": "12345678", "hash": "…", "config": "…" }
+}
+```
+
+This needs an API key with **read** access to Assets — Roblox has required authentication on asset delivery since April 2025. Images already in an older lock file are backfilled on the next `rocas sync` without re-uploading.
+
+> [!NOTE]
+> Resolution never fails a sync. If the image ID can't be read (moderation still pending, key missing the read permission), rocas warns, keeps the decal ID, and retries on the next sync. After three failures in a row it stops trying for the rest of that group. Set `resolveImageIds = false` on a group to turn it off entirely.
+
 ## Configuration
 
 ### `rocas.toml`
@@ -168,6 +185,7 @@ output = "src/shared/images" # Generates images.luau by default
 # assetType = "Decal"        # Optional: force asset type
 # format = "luau"            # "luau" (default) or "roblox-ts"
 # stripExtensions = false    # Remove file extensions from generated keys
+# resolveImageIds = true     # Resolve decal IDs to image IDs (default true)
 ```
 
 See [`rocas.toml.example`](rocas.toml.example) for a fully commented reference.

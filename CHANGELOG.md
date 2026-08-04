@@ -5,14 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-04
 
 ### Added
 
+- Image ID resolution: uploading an image through Open Cloud returns a `Decal` ID, which `ImageLabel.Image` and friends can't use. Synced images now record the image inside the decal as `imageId` in the lock file, and codegen, asset maps, and the Studio manifest prefer it. Entries in existing lock files are backfilled on the next `rocas sync` without re-uploading. Requires an API key with read access to Assets; opt out per group with `resolveImageIds = false`.
+- `fetchDecalImageId` / `extractImageIdFromAssetBody` / `resolveEntryAssetId` are exported for library use.
 - Project documentation set: library [API reference](docs/api.md), [CONTRIBUTING.md](CONTRIBUTING.md), this changelog, and Japanese translations ([README.ja.md](README.ja.md), [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md), [docs/api.ja.md](docs/api.ja.md)).
+
+### Changed
+
+- The IDs generated for images change on the next `rocas sync`: an image now resolves to its image ID instead of the decal ID wrapping it. Nothing is re-uploaded, and `Decal.Texture` accepts either. Set `resolveImageIds = false` on a group to keep the old decal IDs.
 
 ### Fixed
 
+- Generated code and the Studio manifest emitted decal IDs for images, so `ImageLabel.Image` and `ParticleEmitter.Texture` silently rendered nothing.
 - README: the lock file lives *inside* each synced directory (e.g. `assets/images/images.lock.json`), not next to it.
 - `rocas help` now documents the `-o` shorthand for `--output`.
 

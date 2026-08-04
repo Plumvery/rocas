@@ -10,12 +10,13 @@ const rocas = require("rocas");
 
 - [Shared shapes](#shared-shapes) — [`Config`](#config), [`Lock`](#lock), [`Manifest`](#manifest)
 - [Configuration](#configuration) — [`loadEnv`](#loadenvcwd), [`loadConfig`](#loadconfigcwd)
-- [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
+- [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd-options), [`syncOne`](#synconesyncconfig-creator-apikey-cwd-options), [`needsImageId`](#needsimageidentry-assettype), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
 - [Watching](#watching) — [`watchAll`](#watchallconfig-apikey-options)
 - [Uploading](#uploading) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)
+- [Image IDs](#image-ids) — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options), [`extractImageIdFromAssetBody`](#extractimageidfromassetbodybody)
 - [Code generation](#code-generation) — [`generateLuau`](#generateluaulock-varname-options), [`generateDts`](#generatedtslock-varname-options)
 - [Codegen formats](#codegen-formats) — [`registerCodegenFormat`](#registercodegenformatformat), [`listCodegenFormats`](#listcodegenformats), [`resolveCodegenFormat`](#resolvecodegenformatformatname), [`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
-- [Lock files and asset maps](#lock-files-and-asset-maps) — [`lockPathForSync`](#lockpathforsyncsyncconfig-cwd), [`loadLockForSync`](#loadlockforsyncsyncconfig-cwd), [`buildAssetMap`](#buildassetmapconfig-cwd), [`normalizeAssetPath`](#normalizeassetpathvalue)
+- [Lock files and asset maps](#lock-files-and-asset-maps) — [`lockPathForSync`](#lockpathforsyncsyncconfig-cwd), [`loadLockForSync`](#loadlockforsyncsyncconfig-cwd), [`resolveEntryAssetId`](#resolveentryassetidentry), [`buildAssetMap`](#buildassetmapconfig-cwd), [`normalizeAssetPath`](#normalizeassetpathvalue)
 - [Studio plugin and manifest](#studio-plugin-and-manifest) — [`writeStudioPlugin`](#writestudiopluginconfig-cwd-outputpath-options), [`writeStudioManifest`](#writestudiomanifestconfig-cwd-outputpath-options), and lower-level helpers
 
 ## Shared shapes
@@ -38,6 +39,7 @@ The parsed form of `rocas.toml`, as returned by [`loadConfig`](#loadconfigcwd):
       assetType: "Decal",          // optional — force the Roblox assetType for every file
       format: "luau",              // optional — codegen format name (default "luau")
       stripExtensions: false,      // optional — drop file extensions from generated keys
+      resolveImageIds: true,       // optional — resolve decal IDs to image IDs (default true)
     },
   ],
 }
@@ -50,12 +52,15 @@ The contents of a `<name>.lock.json` file, stored inside the synced directory. K
 ```javascript
 {
   "ui/button.png": {
-    assetId: "12345678",     // numeric string; no "rbxassetid://" prefix
+    assetId: "12345679",     // numeric string; no "rbxassetid://" prefix
+    imageId: "12345678",     // images only — the image inside the decal; absent when unresolved
     hash: "…",               // SHA-256 of the file contents
     config: "…",             // 16-hex-char fingerprint of creator + assetType (absent in pre-0.1.2 locks)
   },
 }
 ```
+
+`assetId` for an image is the **decal** Open Cloud returned; `imageId` is the image inside it. Everything that reads a lock resolves an entry with [`resolveEntryAssetId`](#resolveentryassetidentry), which prefers `imageId`.
 
 ### `Manifest`
 
@@ -96,16 +101,29 @@ The parser is intentionally small: it supports `[creator]`, repeated `[[sync]]` 
 
 ## Syncing
 
-### `syncAll(config, apiKey, cwd?)`
+### `syncAll(config, apiKey, cwd?, options?)`
 
 `async`. Runs a full sync for every `[[sync]]` group, sequentially:
 
 1. Recursively scans `sync.path` (skipping dotfiles and `*.lock.json`).
 2. For each file, decides between **upload** (new file, changed content, or changed creator/assetType config), **skip** (lock hash and config fingerprint both match), and **rebaseline** (content matches a pre-fingerprint lock entry — records the fingerprint without uploading).
-3. Writes the updated lock file.
-4. Renders codegen output via the group's format when `sync.output` is set, writing only files whose content changed.
+3. Resolves the [image ID](#fetchdecalimageiddecalid-options) of every `Decal` entry that lacks one — including skipped and rebaselined entries, so old locks are backfilled without re-uploading. Disabled per group with `resolveImageIds = false`.
+4. Writes the updated lock file.
+5. Renders codegen output via the group's format when `sync.output` is set, writing only files whose content changed.
 
 A group whose directory does not exist is skipped with a log line. Files with unsupported extensions (and no `assetType` override) are skipped.
+
+Image ID resolution never fails a sync: a failure logs a warning and leaves the decal ID in place for the next run. After three consecutive failures it is skipped for the rest of the group.
+
+- `options.resolveImageId` — `(decalId, apiKey) => Promise<string>`, replacing [`fetchDecalImageId`](#fetchdecalimageiddecalid-options). Mostly useful for tests and offline runs.
+
+### `syncOne(syncConfig, creator, apiKey, cwd?, options?)`
+
+`async`. The single-group form of `syncAll`, taking one `[[sync]]` entry and the `creator` directly.
+
+### `needsImageId(entry, assetType)`
+
+`true` when a [`Lock`](#lock) entry is an uploaded `Decal` that has no `imageId` yet.
 
 ### `EXT_TO_ASSET_TYPE`
 
@@ -133,6 +151,27 @@ Exits the process with code 1 when none of the configured directories exist.
 - `creator` — `{ type: "user" | "group", id }`.
 - Returns the asset ID as a **numeric string** (no `rbxassetid://` prefix).
 - Throws on non-200 responses and failed operations. The `Content-Type` of the file part is derived from the extension.
+- For images this is the **decal** ID — see [`fetchDecalImageId`](#fetchdecalimageiddecalid-options).
+
+## Image IDs
+
+### `fetchDecalImageId(decalId, options?)`
+
+`async`. Downloads a `Decal` asset and returns the **numeric string** ID of the image inside it — the value `ImageLabel.Image` and friends need. Accepts a bare ID or an `rbxassetid://…` string.
+
+Asset delivery is a two-hop fetch (JSON location, then the gzipped asset body from the CDN), tried in this order:
+
+1. `apis.roblox.com/asset-delivery-api/v1/assetId/{id}` with the `x-api-key` header — only when `options.apiKey` is set.
+2. `assetdelivery.roblox.com/v1/assetId/{id}` unauthenticated — a fallback for old public assets. Roblox rejects unauthenticated asset delivery for most assets since April 2025, so this rarely succeeds on its own.
+
+- `options.apiKey` — Open Cloud API key; needs **read** access to Assets.
+- `options.attempts` (default `3`) / `options.retryDelayMs` (default `2000`) — a freshly uploaded asset may not be servable yet.
+- `options.fetchAsset` — `(url, headers) => Promise<Buffer|string>`, replacing the built-in fetcher.
+- Throws when every endpoint fails or no image ID is found in the asset body.
+
+### `extractImageIdFromAssetBody(body)`
+
+Pulls the image ID out of a downloaded decal, preferring the `Texture` property and falling back to the first asset URL in the body. Handles both XML and binary model bodies. Returns `null` when there is none.
 
 ## Code generation
 
@@ -198,9 +237,13 @@ Absolute path of the group's lock file: `<cwd>/<sync.path>/<sync.name>.lock.json
 
 Parses the group's lock file, returning a [`Lock`](#lock) — or `{}` when the file does not exist.
 
+### `resolveEntryAssetId(entry)`
+
+The ID a [`Lock`](#lock) entry should actually be referenced by: `imageId` when present, otherwise `assetId`, otherwise `null`. Used by codegen, [`buildAssetMap`](#buildassetmapconfig-cwd), and the Studio manifest.
+
 ### `buildAssetMap(config, cwd?)`
 
-Aggregates every group's lock into one lookup structure (entries lacking an `assetId` are skipped):
+Aggregates every group's lock into one lookup structure (entries with no usable ID are skipped):
 
 ```javascript
 {

@@ -53,7 +53,7 @@ imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
 | | |
 |---|---|
 | **Node.js** | 18 以上 |
-| **Roblox Open Cloud API キー** | `sync` と `watch` のみ必要。[Creator Dashboard](https://create.roblox.com/dashboard/credentials) で、対象ユーザーまたはグループの Assets 読み書き権限を付けて作成してください。 |
+| **Roblox Open Cloud API キー** | `sync` と `watch` のみ必要。[Creator Dashboard](https://create.roblox.com/dashboard/credentials) で、対象ユーザーまたはグループの Assets 読み書き権限を付けて作成してください。**読み取り** 権限は [Image ID](#image-id) の解決に使われます。 |
 
 > [!NOTE]
 > `rocas plugin` と `rocas manifest --local` は完全オフラインで動作します — API キー不要。
@@ -152,6 +152,23 @@ rocas watch
 
 アセットタイプはファイル拡張子から自動判定され、グループごとに `assetType` で上書きできます。
 
+### Image ID
+
+Open Cloud は画像を `Decal` アセットとしてアップロードするため、返ってくる ID は中身の画像ではなく **Decal** の ID です。Decal ID は `Decal.Texture` では使えますが、`ImageLabel.Image` や `ImageButton.Image`、`ParticleEmitter.Texture` などは **Image** の ID を要求します。
+
+そこで rocas は画像アップロード後に Decal をダウンロードして中身の Image ID を読み取り、ロックファイルへ `imageId` として保存します。生成コード・アセットマップ・Studio マニフェストはいずれも `imageId` を優先し、無い場合だけ Decal ID にフォールバックします。
+
+```json
+{
+  "ui/button.png": { "assetId": "12345679", "imageId": "12345678", "hash": "…", "config": "…" }
+}
+```
+
+これには Assets の **読み取り** 権限を持つ API キーが必要です（2025年4月以降、Roblox のアセット配信は認証必須になりました）。既存のロックファイルにある画像は、次回の `rocas sync` で再アップロードなしに補完されます。
+
+> [!NOTE]
+> 解決の失敗で sync が止まることはありません。読み取れなかった場合（審査中、キーの読み取り権限不足など）は警告を出して Decal ID のまま残し、次回の sync で再試行します。3 回連続で失敗するとそのグループの残りは解決を諦めます。グループに `resolveImageIds = false` を指定すれば完全に無効化できます。
+
 ## 設定
 
 ### `rocas.toml`
@@ -168,6 +185,7 @@ output = "src/shared/images" # デフォルトでは images.luau を生成
 # assetType = "Decal"        # 任意: アセットタイプを強制
 # format = "luau"            # "luau"（デフォルト）または "roblox-ts"
 # stripExtensions = false    # 生成キーからファイル拡張子を除去
+# resolveImageIds = true     # Decal ID から Image ID を解決（デフォルト true）
 ```
 
 コメント付きの完全なリファレンスは [`rocas.toml.example`](rocas.toml.example) を参照してください。
