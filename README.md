@@ -41,6 +41,7 @@ No manual asset ID copy-pasting, no stale IDs, no untyped string tables.
 - **All asset types** — images, sounds, meshes, animations, videos
 - **Hash-based change detection** — uploads only what actually changed, tracked in lock files
 - **Config-aware re-sync** — re-uploads when the `rocas.toml` creator or `assetType` changes, even if the file is byte-for-byte identical
+- **Stable IDs for models** — editing a synced `Model` updates the existing asset in place instead of minting a new ID
 - **Recursive directory scanning** — nested folders become nested generated objects
 - **Luau native by default** — generates `--!strict` type-annotated `.luau` output
 - **roblox-ts compatible** — opt in to `.luau` + `.d.ts` pairs in an Asphalt-like shape
@@ -218,6 +219,15 @@ rocas keeps a `<name>.lock.json` inside each synced directory (for example `asse
 
 > [!IMPORTANT]
 > If you point `rocas.toml` at a different creator — say you change `[creator].id` from a group to your user — the next `rocas sync` re-uploads every affected asset under the new creator, even though the files themselves are unchanged.
+
+### Updating in place
+
+When only the file content changed — the creator and `assetType` still match the lock — rocas updates the existing asset instead of creating a new one, so the ID in your generated code stays put and Roblox keeps the old content as a previous version.
+
+This only applies to the `Model` asset type. Open Cloud does not support content updates for `Audio`, `Decal`, `Mesh`, `Video`, or `Animation`, so editing one of those still uploads a new asset with a new ID.
+
+> [!NOTE]
+> `.rbxm` and `.rbxmx` default to the `Animation` asset type. Set `assetType = "Model"` on the group to sync them as models and get in-place updates. Binary `.rbxm` models do update in place — measured against the live API on 2026-09-04 — even though Roblox's [asset guide](https://create.roblox.com/docs/cloud/guides/usage-assets) still says content updates are limited to `.fbx`.
 
 Editing `output`, `format`, or `stripExtensions` only regenerates code; it never forces a re-upload. `rocas watch` also watches `rocas.toml` itself, so saving a config change reloads it and triggers a sync.
 

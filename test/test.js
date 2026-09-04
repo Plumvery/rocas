@@ -227,10 +227,49 @@ console.log("  config fingerprint OK");
 console.log("Testing sync action planning...");
 
 assert.strictEqual(planSyncAction(undefined, "h1", "fp1"), "upload", "no cache → upload");
-assert.strictEqual(planSyncAction({ hash: "h0", config: "fp1" }, "h1", "fp1"), "upload", "content changed → upload");
+assert.strictEqual(planSyncAction({ hash: "h0", config: "fp1" }, "h1", "fp1"), "upload", "content changed, no assetType → upload");
 assert.strictEqual(planSyncAction({ hash: "h1", config: "fp1" }, "h1", "fp1"), "reuse", "all matching → reuse");
 assert.strictEqual(planSyncAction({ hash: "h1" }, "h1", "fp1"), "rebaseline", "legacy entry (no config) → rebaseline");
 assert.strictEqual(planSyncAction({ hash: "h1", config: "fp0" }, "h1", "fp1"), "upload", "config changed → upload");
+
+// 内容だけが変わったとき、Update Asset に対応する型だけ同じ assetId で上げ直す
+const changedModel = { assetId: "123", hash: "h0", config: "fp1" };
+assert.strictEqual(planSyncAction(changedModel, "h1", "fp1", "Model"), "update", "content changed, Model → update");
+assert.strictEqual(
+	planSyncAction(changedModel, "h1", "fp1", "Decal"),
+	"upload",
+	"content changed, type not updatable → upload",
+);
+assert.strictEqual(
+	planSyncAction(changedModel, "h1", "fp1", "Animation"),
+	"upload",
+	"content changed, Animation is not documented as updatable → upload",
+);
+assert.strictEqual(
+	planSyncAction(changedModel, "h1", "fp2", "Model"),
+	"upload",
+	"content and config both changed → upload (new asset)",
+);
+assert.strictEqual(
+	planSyncAction({ hash: "h0", config: "fp1" }, "h1", "fp1", "Model"),
+	"upload",
+	"content changed but no assetId to update → upload",
+);
+assert.strictEqual(
+	planSyncAction({ assetId: "", hash: "h0", config: "fp1" }, "h1", "fp1", "Model"),
+	"upload",
+	"content changed but assetId is blank → upload",
+);
+assert.strictEqual(
+	planSyncAction({ assetId: "123", hash: "h0" }, "h1", "fp1", "Model"),
+	"upload",
+	"legacy entry (no config) with changed content → upload",
+);
+assert.strictEqual(
+	planSyncAction({ assetId: "123", hash: "h1", config: "fp1" }, "h1", "fp1", "Model"),
+	"reuse",
+	"Model with unchanged content → reuse",
+);
 console.log("  sync action planning OK");
 
 // --- Upload content type mapping ---
@@ -239,6 +278,9 @@ console.log("Testing upload content type mapping...");
 assert.strictEqual(contentTypeFor("texture.png"), "image/png");
 assert.strictEqual(contentTypeFor("mesh.fbx"), "model/fbx");
 assert.strictEqual(contentTypeFor("scene.glb"), "model/gltf-binary");
+assert.strictEqual(contentTypeFor("map.rbxm"), "model/x-rbxm");
+assert.strictEqual(contentTypeFor("map.rbxmx"), "model/x-rbxm");
+assert.strictEqual(contentTypeFor("MAP.RBXM"), "model/x-rbxm", "extension matching is case-insensitive");
 assert.strictEqual(contentTypeFor("unknown.bin"), "application/octet-stream");
 console.log("  upload content type mapping OK");
 
