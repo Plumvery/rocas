@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- In-place asset updates: when only a file's content changed — the creator and `assetType` still match the lock — rocas updates the existing asset through the Open Cloud **Update Asset** endpoint (`PATCH /assets/v1/assets/{assetId}`) instead of creating a new one. The asset ID in generated code stays put and Roblox keeps the old content as a previous version. Open Cloud only supports content updates for the `Model` asset type, so every other type still uploads a new asset with a new ID. Measured against the live API on 2026-09-04 with binary `.rbxm` files: two consecutive updates returned `200` with the asset ID unchanged and `revisionId` going 1 → 2 → 3. Roblox's asset guide still says content updates are limited to `.fbx`; the Assets API reference is the one that matches the API.
+- `updateAsset` is exported for library use, and `planSyncAction` takes the `assetType` as a fourth argument and can return `"update"`.
+
+### Fixed
+
+- `.rbxm` and `.rbxmx` were uploaded as `Content-Type: application/xml`. Roblox documents `model/x-rbxm` for these files under both the `Animation` and `Model` asset types, which is what rocas now sends — a `Model` upload of a binary `.rbxm` with that content type was accepted on 2026-09-04 and moderated to `Approved`.
+
 ## [0.2.0] - 2026-08-04
 
 ### Added

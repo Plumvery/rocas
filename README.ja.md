@@ -41,6 +41,7 @@ imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
 - **全アセットタイプ対応** — 画像・サウンド・メッシュ・アニメーション・動画
 - **ハッシュベースの変更検知** — 実際に変わったものだけをアップロードし、ロックファイルで管理
 - **設定変更を検知して再同期** — `rocas.toml` の creator や `assetType` が変わると、ファイル内容が同一でも再アップロード
+- **Model の ID は据え置き** — 同期済みの `Model` を編集しても、新しい ID を振らずに既存アセットを更新
 - **ディレクトリの再帰スキャン** — ネストしたフォルダはネストした生成オブジェクトに
 - **Luau ネイティブがデフォルト** — `--!strict` の型注釈付き `.luau` を生成
 - **roblox-ts 互換** — オプトインで Asphalt 風の `.luau` + `.d.ts` ペアを出力
@@ -218,6 +219,15 @@ rocas は各同期ディレクトリの中に `<name>.lock.json` を保持しま
 
 > [!IMPORTANT]
 > `rocas.toml` の creator を変えた場合 — たとえば `[creator].id` をグループから自分のユーザーに変更した場合 — 次の `rocas sync` は、ファイル自体が変わっていなくても、影響する全アセットを新しい creator で再アップロードします。
+
+### その場での更新
+
+変わったのがファイルの内容だけで、creator と `assetType` はロックと一致している場合、rocas は新規作成ではなく既存アセットを更新します。生成コードの中の ID はそのままで、Roblox 側には以前の内容がバージョンとして残ります。
+
+対象は `Model` だけです。Open Cloud は `Audio`・`Decal`・`Mesh`・`Video`・`Animation` の内容更新に対応していないので、これらを編集した場合は従来どおり新しい ID で新規アップロードになります。
+
+> [!NOTE]
+> `.rbxm` と `.rbxmx` の既定の assetType は `Animation` です。モデルとして同期してその場での更新を効かせるには、グループに `assetType = "Model"` を指定してください。バイナリの `.rbxm` はその場で更新できます（2026-09-04 に実 API で確認）。Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は今も内容更新を `.fbx` に限ると書いていますが、実際には通ります。
 
 `output`・`format`・`stripExtensions` の変更はコード生成にのみ影響し、再アップロードは発生しません。`rocas watch` は `rocas.toml` 自体も監視するので、設定を保存すると再読み込みして同期が走ります。
 

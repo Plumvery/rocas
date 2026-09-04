@@ -1,6 +1,6 @@
 const { loadEnv, loadConfig } = require("./config");
 const { syncAll } = require("./sync");
-const { uploadAsset } = require("./upload");
+const { uploadAsset, updateAsset } = require("./upload");
 const { generateLuau, generateDts } = require("./codegen");
 const { EXT_TO_ASSET_TYPE } = require("./sync");
 const { watchAll } = require("./watch");
@@ -27,6 +27,7 @@ module.exports = {
 	syncAll,
 	watchAll,
 	uploadAsset,
+	updateAsset,
 	fetchDecalImageId,
 	extractImageIdFromAssetBody,
 	generateLuau,

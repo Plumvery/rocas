@@ -12,7 +12,7 @@ const rocas = require("rocas");
 - [設定](#設定) — [`loadEnv`](#loadenvcwd)、[`loadConfig`](#loadconfigcwd)
 - [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd-options)、[`syncOne`](#synconesyncconfig-creator-apikey-cwd-options)、[`needsImageId`](#needsimageidentry-assettype)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
 - [監視](#監視) — [`watchAll`](#watchallconfig-apikey-options)
-- [アップロード](#アップロード) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)
+- [アップロード](#アップロード) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)、[`updateAsset`](#updateassetassetid-filepath-assettype-apikey-creator)
 - [Image ID](#image-id) — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options)、[`extractImageIdFromAssetBody`](#extractimageidfromassetbodybody)
 - [コード生成](#コード生成) — [`generateLuau`](#generateluaulock-varname-options)、[`generateDts`](#generatedtslock-varname-options)
 - [コード生成フォーマット](#コード生成フォーマット) — [`registerCodegenFormat`](#registercodegenformatformat)、[`listCodegenFormats`](#listcodegenformats)、[`resolveCodegenFormat`](#resolvecodegenformatformatname)、[`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
@@ -106,7 +106,7 @@ const rocas = require("rocas");
 `async`。すべての `[[sync]]` グループを順番にフル同期します:
 
 1. `sync.path` を再帰スキャン（ドットファイルと `*.lock.json` は除外）。
-2. 各ファイルについて、**upload**（新規・内容変更・creator/assetType 設定の変更）、**skip**（ロックのハッシュと設定フィンガープリントが両方一致）、**rebaseline**（フィンガープリント導入前のロックと内容一致 — アップロードせずフィンガープリントだけ記録）のいずれかを決定。
+2. 各ファイルについて、**upload**（新規・creator/assetType 設定の変更・その場で更新できない型の内容変更）、**update**（Open Cloud が内容更新に対応する型の内容変更 — 同じアセット ID のまま新しいバージョン）、**skip**（ロックのハッシュと設定フィンガープリントが両方一致）、**rebaseline**（フィンガープリント導入前のロックと内容一致 — アップロードせずフィンガープリントだけ記録）のいずれかを決定。
 3. `imageId` を持たない `Decal` エントリの [Image ID](#fetchdecalimageiddecalid-options) を解決。skip / rebaseline したエントリも対象なので、既存ロックは再アップロードなしで補完されます。グループに `resolveImageIds = false` を指定すると無効化されます。
 4. 更新されたロックファイルを書き込み。
 5. `sync.output` が設定されていればグループのフォーマットでコード生成し、内容が変わったファイルのみ書き込み。
@@ -152,6 +152,20 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 - アセット ID を**数値文字列**（`rbxassetid://` プレフィックスなし）で返します。
 - 200 以外のレスポンスや失敗したオペレーションでは throw します。ファイルパートの `Content-Type` は拡張子から決まります。
 - 画像の場合、返るのは **Decal** の ID です — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options) を参照。
+
+### `updateAsset(assetId, filePath, assetType, apiKey, creator)`
+
+`async`。既存アセットの内容を差し替え（`PATCH apis.roblox.com/assets/v1/assets/{assetId}`）、[`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator) と同じ方法でオペレーションをポーリングします。アセット ID は変わらず、Roblox 側に新しいバージョンが記録されます。
+
+- 内容を更新できるのは `Model` だけです（バイナリの `.rbxm` を含む）。`Audio`・`Decal`・`Mesh`・`Video` は更新不可と明記されており、`Animation` も更新可能とは書かれていません — これらには Roblox が `400` を返します。[`syncAll`](#syncallconfig-apikey-cwd-options) はそれらを新規アップロードに回します。
+- 2026-09-04 に実 API で確認: バイナリ `.rbxm` から作成したグループ所有の `Model`（`revisionId` 1）をこのエンドポイントで 2 回更新し、いずれも `200` が返り、アセット ID は据え置きのまま `revisionId` が 2、3 と増えました。
+- `updateMask` を送らないので、変わるのはファイルの内容だけです — `displayName` と `description` はそのまま残ります。
+- 同じエンドポイントはメタデータだけの更新もできます。`?updateMask=displayName,description` を **`fileContent` パート無し**で投げると `200` が返り、内容のリビジョンは増えません（リファレンスは両方のパートを必須と書いていますが、実際には通ります。2026-09-04 実測）。rocas はこの形を使いません。
+- `uploadAsset` に合わせて `assetId` を**数値文字列**で返します。
+- 200 以外のレスポンスや失敗したオペレーションでは throw します。
+
+> [!NOTE]
+> Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は内容更新を `.fbx` に限ると書いていますが、この記述は誤りです（少なくとも 2026-09-04 時点では古い情報です）。実際の挙動と一致するのは [Assets API リファレンス](https://create.roblox.com/docs/cloud/reference/AssetsApi) のほうで、Model 全般で内容を更新できます。
 
 ## Image ID
 

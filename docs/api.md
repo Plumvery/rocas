@@ -12,7 +12,7 @@ const rocas = require("rocas");
 - [Configuration](#configuration) — [`loadEnv`](#loadenvcwd), [`loadConfig`](#loadconfigcwd)
 - [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd-options), [`syncOne`](#synconesyncconfig-creator-apikey-cwd-options), [`needsImageId`](#needsimageidentry-assettype), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
 - [Watching](#watching) — [`watchAll`](#watchallconfig-apikey-options)
-- [Uploading](#uploading) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)
+- [Uploading](#uploading) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator), [`updateAsset`](#updateassetassetid-filepath-assettype-apikey-creator)
 - [Image IDs](#image-ids) — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options), [`extractImageIdFromAssetBody`](#extractimageidfromassetbodybody)
 - [Code generation](#code-generation) — [`generateLuau`](#generateluaulock-varname-options), [`generateDts`](#generatedtslock-varname-options)
 - [Codegen formats](#codegen-formats) — [`registerCodegenFormat`](#registercodegenformatformat), [`listCodegenFormats`](#listcodegenformats), [`resolveCodegenFormat`](#resolvecodegenformatformatname), [`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
@@ -106,7 +106,7 @@ The parser is intentionally small: it supports `[creator]`, repeated `[[sync]]` 
 `async`. Runs a full sync for every `[[sync]]` group, sequentially:
 
 1. Recursively scans `sync.path` (skipping dotfiles and `*.lock.json`).
-2. For each file, decides between **upload** (new file, changed content, or changed creator/assetType config), **skip** (lock hash and config fingerprint both match), and **rebaseline** (content matches a pre-fingerprint lock entry — records the fingerprint without uploading).
+2. For each file, decides between **upload** (new file, changed creator/assetType config, or changed content that cannot be updated in place), **update** (changed content on an asset type Open Cloud can update — same asset ID, new version), **skip** (lock hash and config fingerprint both match), and **rebaseline** (content matches a pre-fingerprint lock entry — records the fingerprint without uploading).
 3. Resolves the [image ID](#fetchdecalimageiddecalid-options) of every `Decal` entry that lacks one — including skipped and rebaselined entries, so old locks are backfilled without re-uploading. Disabled per group with `resolveImageIds = false`.
 4. Writes the updated lock file.
 5. Renders codegen output via the group's format when `sync.output` is set, writing only files whose content changed.
@@ -152,6 +152,20 @@ Exits the process with code 1 when none of the configured directories exist.
 - Returns the asset ID as a **numeric string** (no `rbxassetid://` prefix).
 - Throws on non-200 responses and failed operations. The `Content-Type` of the file part is derived from the extension.
 - For images this is the **decal** ID — see [`fetchDecalImageId`](#fetchdecalimageiddecalid-options).
+
+### `updateAsset(assetId, filePath, assetType, apiKey, creator)`
+
+`async`. Replaces the content of an existing asset (`PATCH apis.roblox.com/assets/v1/assets/{assetId}`), then polls the returned operation the same way [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator) does. The asset ID does not change; Roblox records a new version of it.
+
+- Only `Model` assets can have their content updated — binary `.rbxm` included. `Audio`, `Decal`, `Mesh`, and `Video` are documented as not updatable, and `Animation` is not documented as updatable either — Roblox answers `400` for those. [`syncAll`](#syncallconfig-apikey-cwd-options) uploads a new asset instead of calling this for them.
+- Measured against the live API on 2026-09-04: a group-owned `Model` created from a binary `.rbxm` (`revisionId` 1) was updated twice through this endpoint, each call returning `200` with the same asset ID and `revisionId` 2, then 3.
+- No `updateMask` is sent, so only the file content changes — `displayName` and `description` are left alone.
+- The same endpoint also does metadata-only updates: `?updateMask=displayName,description` with **no `fileContent` part** returns `200` and leaves the content revision where it was, even though the reference marks both multipart parts as required (measured 2026-09-04). rocas does not use that form.
+- Returns `assetId` as a **numeric string**, for symmetry with `uploadAsset`.
+- Throws on non-200 responses and failed operations.
+
+> [!NOTE]
+> Roblox's own [asset guide](https://create.roblox.com/docs/cloud/guides/usage-assets) says content updates are limited to `.fbx`. That line is wrong — or at least stale as of 2026-09-04. The [Assets API reference](https://create.roblox.com/docs/cloud/reference/AssetsApi) is the one that matches the API's actual behavior: the content body can be updated for Models generally.
 
 ## Image IDs
 

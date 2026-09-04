@@ -1,7 +1,7 @@
 const { readFileSync, existsSync, writeFileSync, readdirSync, statSync, mkdirSync } = require("fs");
 const { createHash } = require("crypto");
 const path = require("path");
-const { uploadAsset } = require("./upload");
+const { uploadAsset, updateAsset } = require("./upload");
 const { fetchDecalImageId } = require("./image-id");
 const { resolveCodegenFormat } = require("./formats");
 
@@ -17,6 +17,17 @@ const IMAGE_ID_ASSET_TYPES = new Set(["Decal"]);
  * sync がいつまでも終わらないため。
  */
 const IMAGE_ID_FAILURE_LIMIT = 3;
+
+/**
+ * 内容の差し替え (Update Asset) に対応する assetType。
+ * Assets API の Update Asset は "Currently can only update the content body for Models" とされ、
+ * Audio・Decal/Image・Mesh・Video は "Not available for updating" と明記されている。Animation は
+ * どちらにも挙がっていないので、Model だけを対象にする。バイナリの .rbxm を含む Model の内容更新は
+ * 2026-09-04 に実 API で確認済み (ガイド側の ".fbx のみ更新できる" という記述は実挙動と合わない)。
+ * 対象外の型は従来どおり新規アップロードになり、assetId が変わる。
+ * https://create.roblox.com/docs/cloud/guides/usage-assets
+ */
+const UPDATABLE_ASSET_TYPES = new Set(["Model"]);
 
 /**
  * 拡張子 → Roblox assetType マッピング
@@ -73,14 +84,23 @@ function configFingerprint(creator, assetType) {
  * @param {object | undefined} cached - lock[key]
  * @param {string} hash - 現在のファイル内容ハッシュ
  * @param {string} fingerprint - 現在の設定フィンガープリント
- * @returns {"upload" | "reuse" | "rebaseline"}
- *   upload     - 新規 / 内容が変わった / 設定 (creator・assetType) が変わった → アップロード
+ * @param {string} [assetType] - 現在の assetType。省略すると内容更新は選ばれず upload になる
+ * @returns {"upload" | "update" | "reuse" | "rebaseline"}
+ *   upload     - 新規 / 設定 (creator・assetType) が変わった / 内容は変わったが更新できない → 新規アップロード
+ *   update     - 内容だけが変わり、その assetType が内容更新に対応する → 同じ assetId で上げ直し
  *   reuse      - 内容も設定も一致 → スキップ
  *   rebaseline - 内容は一致するが設定未記録の旧ロック → 再アップロードせず設定だけ記録
  */
-function planSyncAction(cached, hash, fingerprint) {
-	if (!cached || cached.hash !== hash) {
+function planSyncAction(cached, hash, fingerprint, assetType) {
+	if (!cached) {
 		return "upload";
+	}
+	if (cached.hash !== hash) {
+		// 設定が一致していれば同じアセットの中身が差し替わっただけなので、assetId を保てる。
+		// creator・assetType が変わっている場合は別アセットとして上げ直すしかない。
+		const hasAssetId = cached.assetId != null && String(cached.assetId) !== "";
+		const canUpdate = cached.config === fingerprint && hasAssetId && UPDATABLE_ASSET_TYPES.has(assetType);
+		return canUpdate ? "update" : "upload";
 	}
 	if (cached.config === fingerprint) {
 		return "reuse";
@@ -195,7 +215,7 @@ async function syncOne(syncConfig, creator, apiKey, cwd, options = {}) {
 		const hash = fileHash(filePath);
 		const fingerprint = configFingerprint(creator, assetType);
 		const cached = lock[key];
-		const action = planSyncAction(cached, hash, fingerprint);
+		const action = planSyncAction(cached, hash, fingerprint, assetType);
 
 		if (action === "reuse") {
 			console.log(`[${syncConfig.name}] skip: ${relPath} (unchanged)`);
@@ -212,6 +232,19 @@ async function syncOne(syncConfig, creator, apiKey, cwd, options = {}) {
 		if (action === "rebaseline") {
 			console.log(`[${syncConfig.name}] skip: ${relPath} (unchanged; recording config baseline)`);
 			const entry = { ...cached, config: fingerprint };
+			await attachImageId(entry, assetType, relPath);
+			lock[key] = entry;
+			changed = true;
+			continue;
+		}
+
+		// 内容だけが変わったので、新しい ID を振らずに既存アセットへ新しいバージョンを上げる。
+		// 参照側 (生成コード・Studio マニフェスト) の ID が据え置きになる。
+		if (action === "update") {
+			console.log(`[${syncConfig.name}] updating: ${relPath} (content changed) ...`);
+			await updateAsset(cached.assetId, filePath, assetType, apiKey, creator);
+			console.log(`[${syncConfig.name}] done: ${relPath} → rbxassetid://${cached.assetId}`);
+			const entry = { ...cached, hash, config: fingerprint };
 			await attachImageId(entry, assetType, relPath);
 			lock[key] = entry;
 			changed = true;
