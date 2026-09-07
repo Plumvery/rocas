@@ -78,6 +78,15 @@ npm install --save-dev @plumvery/rocas
 > [!NOTE]
 > パッケージ名はスコープ付きですが、入るコマンドは `rocas` のままです。スコープ無しの名前は、既存パッケージと紛らわしいとして npm レジストリに拒否されました。
 
+> [!NOTE]
+> **npm 12 では `rocas plugin` だけ一手間かかります。** npm 12 は依存の install スクリプトをプロジェクトが承認しない限りブロックするため、`rbxm-parser` が必要とするネイティブモジュール `lz4` がビルドされません。他のコマンドはそれ無しで動きます。困るのは Studio プラグインを `.rbxm` で書き出すときだけです。一度承認するか、
+>
+> ```bash
+> npm install-scripts approve lz4
+> ```
+>
+> ネイティブコードの要らない XML で書き出してください: `rocas plugin --output rocas-studio-plugin.rbxmx`
+
 ## クイックスタート
 
 **1. プロジェクトルートに `rocas.toml` を作成**

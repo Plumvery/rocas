@@ -1,6 +1,5 @@
 const { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } = require("fs");
 const path = require("path");
-const { RobloxFile, Script } = require("rbxm-parser");
 const { EXT_TO_ASSET_TYPE, CONVERTED_EXT_TO_ASSET_TYPE, walkDir } = require("./sync");
 const { assetIdString, normalizeAssetPath, resolveEntryAssetId } = require("./asset-map");
 
@@ -116,6 +115,12 @@ function generateStudioPlugin() {
 }
 
 function generateStudioPluginRbxm(source = generateStudioPlugin()) {
+	// rbxm-parser はここでだけ読む。あれが要求するネイティブモジュール lz4 は、
+	// npm 12 が依存の install スクリプトを既定でブロックするせいでビルドされない
+	// ことがある。トップレベルで読むと、lz4 を一切使わない sync / fetch / watch /
+	// help まで ERR_DLOPEN_FAILED で道連れになる。
+	const { RobloxFile, Script } = require("rbxm-parser");
+
 	const file = new RobloxFile();
 	const script = new Script();
 	script.Name = "rocas";

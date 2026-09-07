@@ -1,4 +1,5 @@
 const assert = require("assert");
+const { execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -504,6 +505,18 @@ assert.strictEqual(parsedPluginModel.Roots[0].ClassName, "Script");
 assert.strictEqual(parsedPluginModel.Roots[0].Name, "rocas");
 assert(!parsedPluginModel.Roots[0].Source.includes("\0"));
 assert(parsedPluginModel.Roots[0].Source.includes("plugin:CreateToolbar(\"rocas\")"));
+
+// rbxm-parser を読むのは .rbxm を書くときだけ。あれが要求するネイティブモジュール lz4 は
+// npm 12 だとビルドされないことがあり、トップレベルで読むと lz4 を使わない sync / fetch /
+// watch / help まで巻き添えで落ちる。別プロセスで確かめる — このテスト自身が先頭で
+// rbxm-parser を読んでいるので、同じプロセスの require.cache では判定できない。
+const probe = [
+	`require(${JSON.stringify(path.resolve(__dirname, "../src/index.js"))});`,
+	'const loaded = Object.keys(require.cache).some((key) => key.includes("rbxm-parser"));',
+	'process.stdout.write(loaded ? "yes" : "no");',
+].join("\n");
+const loadedEagerly = execFileSync(process.execPath, ["-e", probe], { encoding: "utf8" });
+assert.strictEqual(loadedEagerly, "no", "requiring the library must not load rbxm-parser (and its lz4 native module)");
 
 const manifestModule = generateManifestModule(studioManifest);
 assert(manifestModule.includes("ROCAS_MANIFEST_JSON_BEGIN"));

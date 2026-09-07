@@ -78,6 +78,15 @@ npm install --save-dev @plumvery/rocas
 > [!NOTE]
 > The package is scoped, but the command it installs is plain `rocas`. The unscoped package name was rejected by the npm registry as too similar to existing packages.
 
+> [!NOTE]
+> **On npm 12, `rocas plugin` needs one extra step.** npm 12 blocks a dependency's install scripts unless your project approves them, so the `lz4` native module that `rbxm-parser` needs is left unbuilt. Every other command works without it; only writing the Studio plugin as `.rbxm` does not. Either approve it once,
+>
+> ```bash
+> npm install-scripts approve lz4
+> ```
+>
+> or write the plugin as XML instead, which needs no native code: `rocas plugin --output rocas-studio-plugin.rbxmx`.
+
 ## Quick start
 
 **1. Create `rocas.toml` in your project root**
