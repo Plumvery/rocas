@@ -19,7 +19,9 @@ jobs:
       matrix:
         # Windows も回す: ロックのキーは \ を / へ正規化しているし、Studio の
         # Plugins フォルダ解決と fetch の出力先判定は path.sep を見ている。
-        os: [ubuntu-latest, windows-latest]
+        # windows-2022 に固定している: windows-latest の Visual Studio 18 を
+        # npm 同梱の node-gyp 10 が認識できず、lz4 のビルドが落ちるため。
+        os: [ubuntu-latest, windows-2022]
         # 18 は package.json の engines の下限、22 は現行 LTS。
         node: [18, 22]
 
