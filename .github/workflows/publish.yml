@@ -50,5 +50,20 @@ jobs:
             exit 1
           fi
 
+      # 既に公開済みのバージョンなら何もしない。最初の 1 回を手で公開した直後や、
+      # workflow を再実行したときに、重複公開で赤くならないようにする。
+      - name: Skip when this version is already on the registry
+        id: published
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version > /dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already published; skipping"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # テストは package.json の prepublishOnly が走らせるので、ここでは呼ばない。
       - run: npm publish
+        if: steps.published.outputs.already == 'false'
