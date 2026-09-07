@@ -3,6 +3,7 @@
 const { loadEnv, loadConfig } = require("../src/config");
 const { syncAll } = require("../src/sync");
 const { watchAll } = require("../src/watch");
+const { fetchAll, DEFAULT_FETCH_DIR } = require("../src/fetch");
 const { writeStudioManifest, writeStudioPlugin } = require("../src/studio-plugin");
 const path = require("path");
 
@@ -12,6 +13,7 @@ rocas - Roblox Open Cloud Asset Sync
 Usage:
   rocas sync       Sync all assets defined in rocas.toml
   rocas watch      Watch for file changes and sync automatically
+  rocas fetch      Download the assets listed in the lock files
   rocas plugin     Generate the static Roblox Studio plugin
   rocas manifest   Generate a ReplicatedStorage manifest module from lock files
   rocas manifest --local
@@ -20,6 +22,13 @@ Usage:
 
 Options (watch):
   --debounce <ms> Debounce interval in ms (default: 10000)
+
+Options (fetch):
+  --group <name>       Only fetch this [[sync]] group (repeatable)
+  --out, -o <dir>      Output directory (default: ${DEFAULT_FETCH_DIR})
+                       Keep it outside every synced path — fetched files do not
+                       match the originals byte for byte, so syncing them back
+                       re-uploads them and changes their asset IDs.
 
 Options (plugin):
   --output, -o <path>  Output plugin path (default: Roblox Studio local Plugins folder)
@@ -40,7 +49,14 @@ async function main() {
 		process.exit(0);
 	}
 
-	if (command !== "sync" && command !== "watch" && command !== "plugin" && command !== "studio-plugin" && command !== "manifest") {
+	if (
+		command !== "sync" &&
+		command !== "watch" &&
+		command !== "fetch" &&
+		command !== "plugin" &&
+		command !== "studio-plugin" &&
+		command !== "manifest"
+	) {
 		console.error(`Unknown command: ${command}`);
 		console.log(HELP.trim());
 		process.exit(1);
@@ -90,6 +106,25 @@ async function main() {
 			debounce = parseInt(process.argv[debounceIdx + 1], 10);
 		}
 		watchAll(config, apiKey, { debounce });
+		return;
+	}
+
+	if (command === "fetch") {
+		const groups = [];
+		for (let i = 3; i < process.argv.length; i++) {
+			if (process.argv[i] === "--group" && process.argv[i + 1]) groups.push(process.argv[++i]);
+		}
+		const outIdx = process.argv.indexOf("--out");
+		const shortOutIdx = process.argv.indexOf("-o");
+		const selectedOutIdx = outIdx !== -1 ? outIdx : shortOutIdx;
+		const out = selectedOutIdx !== -1 && process.argv[selectedOutIdx + 1] ? process.argv[selectedOutIdx + 1] : undefined;
+
+		const result = await fetchAll(config, apiKey, process.cwd(), { groups, out });
+		const displayPath = path.relative(process.cwd(), result.outDir) || ".";
+		console.log(
+			`Fetched ${result.fetched} asset(s) into ${displayPath} (${result.reused} already up to date, ${result.failed} failed).`,
+		);
+		if (result.failed > 0) process.exit(1);
 		return;
 	}
 

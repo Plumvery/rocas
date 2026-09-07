@@ -42,6 +42,7 @@ No manual asset ID copy-pasting, no stale IDs, no untyped string tables.
 - **Hash-based change detection** — uploads only what actually changed, tracked in lock files
 - **Config-aware re-sync** — re-uploads when the `rocas.toml` creator or `assetType` changes, even if the file is byte-for-byte identical
 - **Stable IDs for models** — editing a synced `Model` updates the existing asset in place instead of minting a new ID
+- **Fetch back** — `rocas fetch` downloads what the lock files point at, so a repository can carry IDs instead of asset bodies
 - **Recursive directory scanning** — nested folders become nested generated objects
 - **Luau native by default** — generates `--!strict` type-annotated `.luau` output
 - **roblox-ts compatible** — opt in to `.luau` + `.d.ts` pairs in an Asphalt-like shape
@@ -54,7 +55,7 @@ No manual asset ID copy-pasting, no stale IDs, no untyped string tables.
 | | |
 |---|---|
 | **Node.js** | 18 or newer |
-| **Roblox Open Cloud API key** | Required for `sync` and `watch` only. Create one in the [Creator Dashboard](https://create.roblox.com/dashboard/credentials) with Assets read/write permissions for your user or group. The **read** permission is what lets rocas resolve [image IDs](#image-ids). |
+| **Roblox Open Cloud API key** | Required for `sync`, `watch`, and `fetch`. Create one in the [Creator Dashboard](https://create.roblox.com/dashboard/credentials) with Assets read/write permissions for your user or group. The **read** permission is what lets rocas resolve [image IDs](#image-ids) and download assets with [`rocas fetch`](#fetching-assets-back). |
 
 > [!NOTE]
 > `rocas plugin` and `rocas manifest --local` work entirely offline — no API key needed.
@@ -122,6 +123,7 @@ rocas watch
 |---------|-------------|
 | `rocas sync` | Upload changed assets and regenerate bindings |
 | `rocas watch` | Watch asset directories and `rocas.toml`, syncing on change |
+| `rocas fetch` | Download the assets listed in the lock files |
 | `rocas plugin` | Generate the static Roblox Studio plugin |
 | `rocas manifest` | Generate a `ReplicatedStorage` manifest ModuleScript from lock files |
 | `rocas help` | Show help |
@@ -131,6 +133,8 @@ rocas watch
 | Flag | Applies to | Default | Description |
 |------|-----------|---------|-------------|
 | `--debounce <ms>` | `watch` | `10000` | Debounce interval before a sync fires |
+| `--group <name>` | `fetch` | every group | Only fetch this `[[sync]]` group; repeatable |
+| `--out`, `-o <dir>` | `fetch` | `.rocas-cache` | Where to write the downloaded assets |
 | `--output`, `-o <path>` | `plugin` | Studio local Plugins folder | Where to write the plugin |
 | `--output`, `-o <path>` | `manifest` | `src/shared/RocasManifest.luau` | Where to write the manifest module |
 | `--local` | `manifest` | — | Build from local files instead of lock files; no upload, no API key |
@@ -147,11 +151,21 @@ rocas watch
 |------|------------|--------------------|
 | Image | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
 | Audio | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
-| Mesh | `.fbx` `.glb` `.gltf` `.obj` | `Model` |
+| Mesh | `.fbx` `.glb` `.gltf` `.obj` | `Model` — needs an explicit `assetType` |
 | Animation | `.rbxm` `.rbxmx` | `Animation` |
 | Video | `.mp4` `.mov` | `Video` |
 
 Asset types are detected from the file extension, and can be overridden per group with `assetType`.
+
+> [!IMPORTANT]
+> Mesh formats are **not** auto-detected. Roblox converts `.fbx`, `.glb`, `.gltf`, and `.obj` into a `Model` on upload and never hands the original file back, so [`rocas fetch`](#fetching-assets-back) can't restore them. rocas skips them with an explanation unless the group asks for them by name:
+>
+> ```toml
+> [[sync]]
+> name = "meshes"
+> path = "assets/meshes"
+> assetType = "Model"   # without this, .fbx files are skipped
+> ```
 
 ### Image IDs
 
@@ -241,6 +255,35 @@ Lock entries written by older versions of rocas have no config fingerprint. The 
 If you need to force a full re-upload — for example, you changed the creator while still on a pre-fingerprint lock — delete the relevant `*.lock.json` and run `rocas sync`.
 
 </details>
+
+## Fetching assets back
+
+`rocas fetch` is `sync` in reverse: it reads the lock files and downloads what they point at.
+
+```bash
+rocas fetch                     # every group
+rocas fetch --group models      # one group
+rocas fetch --out .rocas-cache  # somewhere else
+```
+
+Files land as `<assetId>.<ext>`, alongside a `<group>.fetch.json` recording what was downloaded. The extension comes from the bytes Roblox returns rather than the original file name, because they don't always agree — an image comes back as the image, a `.fbx` comes back as the `.rbxm` Roblox built from it. An asset whose lock `assetId` and `hash` are unchanged, and whose file is still on disk, is not downloaded again.
+
+That is what makes it possible to keep asset bodies out of the repository: commit the lock files, gitignore the sources, and run `rocas fetch` after a clone. Two things bound how far that goes.
+
+> [!WARNING]
+> **Don't fetch into a synced path.** A downloaded file is not byte-for-byte identical to the original, so the next `rocas sync` reads it as changed. For a `Model` that costs a pointless upload; for `Decal`, `Audio`, and `Video` it mints a **new asset ID** and breaks every reference to the old one. The default output directory sits outside every synced path for exactly this reason, and rocas warns when `--out` points inside one.
+
+> [!NOTE]
+> **Mesh sources never come back.** Uploading `.fbx` (or `.glb`, `.gltf`, `.obj`) produces a `Model`; the original file is gone. Only `.rbxm` / `.rbxmx` round-trip, so a project that wants the bytes out of the repository should export models as `.rbxm` and set `assetType = "Model"` on the group.
+
+For a single asset, [`fetchAssetContent`](docs/api.md#fetchassetcontentassetid-options) returns the bytes directly:
+
+```javascript
+const { fetchAssetContent } = require("rocas");
+
+const rbxm = await fetchAssetContent(assetId, { apiKey });
+const older = await fetchAssetContent(assetId, { apiKey, version: 3 });
+```
 
 ## Roblox Studio plugin
 

@@ -10,9 +10,10 @@ const rocas = require("rocas");
 
 - [Shared shapes](#shared-shapes) — [`Config`](#config), [`Lock`](#lock), [`Manifest`](#manifest)
 - [Configuration](#configuration) — [`loadEnv`](#loadenvcwd), [`loadConfig`](#loadconfigcwd)
-- [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd-options), [`syncOne`](#synconesyncconfig-creator-apikey-cwd-options), [`needsImageId`](#needsimageidentry-assettype), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
+- [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd-options), [`syncOne`](#synconesyncconfig-creator-apikey-cwd-options), [`needsImageId`](#needsimageidentry-assettype), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type), [`CONVERTED_EXT_TO_ASSET_TYPE`](#converted_ext_to_asset_type)
 - [Watching](#watching) — [`watchAll`](#watchallconfig-apikey-options)
 - [Uploading](#uploading) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator), [`updateAsset`](#updateassetassetid-filepath-assettype-apikey-creator)
+- [Fetching](#fetching) — [`fetchAll`](#fetchallconfig-apikey-cwd-options), [`fetchAssetContent`](#fetchassetcontentassetid-options)
 - [Image IDs](#image-ids) — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options), [`extractImageIdFromAssetBody`](#extractimageidfromassetbodybody)
 - [Code generation](#code-generation) — [`generateLuau`](#generateluaulock-varname-options), [`generateDts`](#generatedtslock-varname-options)
 - [Codegen formats](#codegen-formats) — [`registerCodegenFormat`](#registercodegenformatformat), [`listCodegenFormats`](#listcodegenformats), [`resolveCodegenFormat`](#resolvecodegenformatformatname), [`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
@@ -111,7 +112,7 @@ The parser is intentionally small: it supports `[creator]`, repeated `[[sync]]` 
 4. Writes the updated lock file.
 5. Renders codegen output via the group's format when `sync.output` is set, writing only files whose content changed.
 
-A group whose directory does not exist is skipped with a log line. Files with unsupported extensions (and no `assetType` override) are skipped.
+A group whose directory does not exist is skipped with a log line. Files with unsupported extensions (and no `assetType` override) are skipped, as are the [converted formats](#converted_ext_to_asset_type) — `.fbx` and friends — which need the group to name their `assetType` explicitly.
 
 Image ID resolution never fails a sync: a failure logs a warning and leaves the decal ID in place for the next run. After three consecutive failures it is skipped for the rest of the group.
 
@@ -127,7 +128,11 @@ Image ID resolution never fails a sync: a failure logs a warning and leaves the 
 
 ### `EXT_TO_ASSET_TYPE`
 
-Object mapping lower-case file extensions to Roblox asset types, e.g. `{ ".png": "Decal", ".mp3": "Audio", ".fbx": "Model", ".rbxm": "Animation", ".mp4": "Video", … }`. Used for auto-detection whenever a group has no `assetType` override.
+Object mapping lower-case file extensions to Roblox asset types, e.g. `{ ".png": "Decal", ".mp3": "Audio", ".rbxm": "Animation", ".mp4": "Video", … }`. Used for auto-detection whenever a group has no `assetType` override.
+
+### `CONVERTED_EXT_TO_ASSET_TYPE`
+
+`{ ".fbx": "Model", ".glb": "Model", ".gltf": "Model", ".obj": "Model" }` — the formats Roblox converts on upload. Uploading one produces a `Model` and the original file is not recoverable, so [`fetchAll`](#fetchallconfig-apikey-cwd-options) cannot restore it. These are deliberately **not** in `EXT_TO_ASSET_TYPE`: a group has to set `assetType = "Model"` to sync them. The table is still used to describe a file (the Studio manifest calls a `.fbx` a `Model`).
 
 ## Watching
 
@@ -166,6 +171,43 @@ Exits the process with code 1 when none of the configured directories exist.
 
 > [!NOTE]
 > Roblox's own [asset guide](https://create.roblox.com/docs/cloud/guides/usage-assets) says content updates are limited to `.fbx`. That line is wrong — or at least stale as of 2026-09-04. The [Assets API reference](https://create.roblox.com/docs/cloud/reference/AssetsApi) is the one that matches the API's actual behavior: the content body can be updated for Models generally.
+
+## Fetching
+
+### `fetchAll(config, apiKey, cwd?, options?)`
+
+`async`. The reverse of [`syncAll`](#syncallconfig-apikey-cwd-options): reads every group's lock file and downloads the assets it lists.
+
+Each entry is resolved with [`resolveEntryAssetId`](#resolveentryassetidentry), so an image is fetched by its `imageId` rather than the decal wrapping it. Files are written as `<assetId>.<ext>`, where the extension comes from the bytes Roblox returns rather than the lock key — a `.fbx` upload comes back as the `.rbxm` Roblox built from it. A `<group>.fetch.json` next to them records `{ assetId, hash, file }` per lock key; an entry whose `assetId` and `hash` still match, and whose file is still on disk, is not downloaded again.
+
+- `options.out` — output directory, resolved against `cwd`. Default `.rocas-cache`.
+- `options.groups` — array of `[[sync]]` names to limit the run to. Throws on an unknown name.
+- `options.fetchContent` — `(assetId, apiKey) => Promise<Buffer>`, replacing [`fetchAssetContent`](#fetchassetcontentassetid-options). Mostly useful for tests and offline runs.
+- Returns `{ outDir, fetched, reused, failed }`.
+
+A single failure does not stop the run: it logs a warning and counts toward `failed`. After three consecutive failures the rest of that group is skipped.
+
+> [!WARNING]
+> Keep the output directory **outside** every `sync.path`. A downloaded file is not byte-for-byte identical to the original, so the next sync sees it as changed — an in-place update for a `Model`, but a new upload and a **new asset ID** for `Decal`, `Audio`, and `Video`. `fetchAll` warns when `options.out` lands inside a synced path, and the default never does.
+
+### `fetchAssetContent(assetId, options?)`
+
+`async`. Downloads one asset and returns its body as a `Buffer`. Accepts a bare ID or an `rbxassetid://…` string.
+
+What comes back is what Roblox stores, not what was uploaded: a `Model` is a MeshPart-ified `.rbxm`, an image is the image bytes (so pass the image ID, not the decal ID). Uses the same two-hop asset delivery as [`fetchDecalImageId`](#fetchdecalimageiddecalid-options), including the Open Cloud → legacy fallback and the gzip handling.
+
+- `options.apiKey` — Open Cloud API key; needs **read** access to Assets.
+- `options.version` — pins a specific asset version (`.../assetId/{id}/version/{n}`).
+- `options.attempts` (default `3`) / `options.retryDelayMs` (default `2000`) — a freshly uploaded asset may not be servable yet.
+- `options.fetchAsset` — `(url, headers) => Promise<Buffer|string>`, replacing the built-in fetcher.
+- Throws when every endpoint fails.
+
+```javascript
+const { fetchAssetContent } = require("rocas");
+
+const rbxm = await fetchAssetContent("123456789", { apiKey });
+const older = await fetchAssetContent("123456789", { apiKey, version: 3 });
+```
 
 ## Image IDs
 

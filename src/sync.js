@@ -44,17 +44,27 @@ const EXT_TO_ASSET_TYPE = {
 	".ogg": "Audio",
 	".wav": "Audio",
 	".flac": "Audio",
-	// 3Dモデル / メッシュ
-	".fbx": "Model",
-	".glb": "Model",
-	".gltf": "Model",
-	".obj": "Model",
 	// アニメーション
 	".rbxm": "Animation",
 	".rbxmx": "Animation",
 	// 動画
 	".mp4": "Video",
 	".mov": "Video",
+};
+
+/**
+ * Roblox がアップロード時に変換してしまう拡張子 → 変換後の assetType。
+ *
+ * .fbx / .glb / .gltf / .obj を上げると Roblox が作るのは MeshPart 化済みの Model で、
+ * 元のファイルは二度と取り出せない。`rocas fetch` で戻せない = 実体をリポジトリから
+ * 外せないということなので、自動判定からは外し、`assetType` を明示したときだけ通す。
+ * 判定表そのものは残す: マニフェストなど「このファイルは何か」を説明する側では使う。
+ */
+const CONVERTED_EXT_TO_ASSET_TYPE = {
+	".fbx": "Model",
+	".glb": "Model",
+	".gltf": "Model",
+	".obj": "Model",
 };
 
 /**
@@ -207,7 +217,14 @@ async function syncOne(syncConfig, creator, apiKey, cwd, options = {}) {
 		// assetType: 設定で明示指定されていれば優先、なければ拡張子から自動判定
 		const assetType = syncConfig.assetType || EXT_TO_ASSET_TYPE[ext];
 		if (!assetType) {
-			console.log(`[${syncConfig.name}] skip: unsupported extension (${relPath})`);
+			const converted = CONVERTED_EXT_TO_ASSET_TYPE[ext];
+			if (converted) {
+				console.log(
+					`[${syncConfig.name}] skip: ${relPath} (${ext} is converted to a ${converted} on upload and cannot be fetched back; set assetType = "${converted}" to upload it anyway)`,
+				);
+			} else {
+				console.log(`[${syncConfig.name}] skip: unsupported extension (${relPath})`);
+			}
 			continue;
 		}
 
@@ -325,4 +342,5 @@ module.exports = {
 	planSyncAction,
 	needsImageId,
 	EXT_TO_ASSET_TYPE,
+	CONVERTED_EXT_TO_ASSET_TYPE,
 };
