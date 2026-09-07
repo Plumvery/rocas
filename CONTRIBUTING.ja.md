@@ -26,6 +26,10 @@ npm test        # node test/test.js を実行
 
 テストスイートは `node:assert` を使う単一スクリプトで、テストフレームワークは使っていません。ネットワーク通信は行わず、アップロード周りの挙動は純粋な計画関数・コード生成関数のテストでカバーしています。挙動を変更する場合はテストを追加し、PR を出す前にスイートが通ることを確認してください。
 
+[CI](.github/workflows/ci.yml) が同じスイートを Pull Request ごとに実行します。対象は Linux と Windows × Node 18（`engines` の下限）と 22 です。Windows を回しているのは飾りではなく、ロックのキーは `\` を `/` へ正規化していますし、Studio のプラグインフォルダと `rocas fetch` の出力先判定はどちらも `path.sep` を見ています。
+
+CI はネイティブビルド込みで `npm ci` を回します。`lz4` のビルドは省略できません — 公開されているパッケージにはビルド済みの `xxhash.node` が同梱されていますが、どの runner でも読めず（Linux では `invalid ELF header`、Windows では `not a valid Win32 application`）、`rbxm-parser` はこれを無条件に require するためです。GitHub の runner にはツールチェーンが揃っています。手元で引っかかるのは macOS だけで、その場合は上の `SDKROOT` の対処を使ってください。
+
 ## プロジェクト構成
 
 ```text
