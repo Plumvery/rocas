@@ -1,0 +1,54 @@
+name: Publish
+
+# GitHub Release を publish したら npm へ公開する。
+# workflow_dispatch は、リリースを作り直さずに公開だけやり直したいとき用。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # npm の Trusted Publishing (OIDC) に必要。これがあるとトークンを
+      # secrets に置かずに公開でき、npm が要求する 2FA の条件も満たせる。
+      #
+      # トークン方式にしたい場合は id-token を消して、npm publish の step に
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # を足す (トークンは "bypass 2FA" を有効にした granular access token)。
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # release から起動したときは、その時点のタグを確実に取る。
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing は npm 11.5.1 以降。runner 同梱の npm はもっと古いことがある。
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      # タグと package.json がずれたまま公開しないための門番。
+      # 例: v0.3.1 のリリースなのに package.json が 0.3.0 のまま、を止める。
+      - name: Check the tag matches package.json
+        if: github.event_name == 'release'
+        run: |
+          tag='${{ github.event.release.tag_name }}'
+          pkg="v$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::release tag $tag does not match package.json $pkg"
+            exit 1
+          fi
+
+      # テストは package.json の prepublishOnly が走らせるので、ここでは呼ばない。
+      - run: npm publish
