@@ -10,7 +10,7 @@ const rocas = require("@plumvery/rocas");
 
 - [Shared shapes](#shared-shapes) — [`Config`](#config), [`Lock`](#lock), [`Manifest`](#manifest)
 - [Configuration](#configuration) — [`loadEnv`](#loadenvcwd), [`loadConfig`](#loadconfigcwd)
-- [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd-options), [`syncOne`](#synconesyncconfig-creator-apikey-cwd-options), [`needsImageId`](#needsimageidentry-assettype), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type), [`CONVERTED_EXT_TO_ASSET_TYPE`](#converted_ext_to_asset_type)
+- [Syncing](#syncing) — [`syncAll`](#syncallconfig-apikey-cwd-options), [`syncOne`](#synconesyncconfig-creator-apikey-cwd-options), [`resolveAssetType`](#resolveassettypesyncconfig-ext), [`needsImageId`](#needsimageidentry-assettype), [`EXT_TO_ASSET_TYPE`](#ext_to_asset_type), [`CONVERTED_EXT_TO_ASSET_TYPE`](#converted_ext_to_asset_type)
 - [Watching](#watching) — [`watchAll`](#watchallconfig-apikey-options)
 - [Uploading](#uploading) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator), [`updateAsset`](#updateassetassetid-filepath-assettype-apikey-creator)
 - [Fetching](#fetching) — [`fetchAll`](#fetchallconfig-apikey-cwd-options), [`fetchAssetContent`](#fetchassetcontentassetid-options)
@@ -38,6 +38,7 @@ The parsed form of `rocas.toml`, as returned by [`loadConfig`](#loadconfigcwd):
       path: "assets/images",       // required — directory scanned recursively
       output: "src/shared/images", // optional — codegen output path (extension added by the format)
       assetType: "Decal",          // optional — force the Roblox assetType for every file
+      allowConvertedFormats: false, // optional — upload .fbx/.glb/.gltf/.obj (default false)
       format: "luau",              // optional — codegen format name (default "luau")
       stripExtensions: false,      // optional — drop file extensions from generated keys
       resolveImageIds: true,       // optional — resolve decal IDs to image IDs (default true)
@@ -112,7 +113,7 @@ The parser is intentionally small: it supports `[creator]`, repeated `[[sync]]` 
 4. Writes the updated lock file.
 5. Renders codegen output via the group's format when `sync.output` is set, writing only files whose content changed.
 
-A group whose directory does not exist is skipped with a log line. Files with unsupported extensions (and no `assetType` override) are skipped, as are the [converted formats](#converted_ext_to_asset_type) — `.fbx` and friends — which need the group to name their `assetType` explicitly.
+A group whose directory does not exist is skipped with a log line. Files with unsupported extensions (and no `assetType` override) are skipped, as are the [converted formats](#converted_ext_to_asset_type) — `.fbx` and friends — unless the group sets `allowConvertedFormats = true`.
 
 Image ID resolution never fails a sync: a failure logs a warning and leaves the decal ID in place for the next run. After three consecutive failures it is skipped for the rest of the group.
 
@@ -121,6 +122,12 @@ Image ID resolution never fails a sync: a failure logs a warning and leaves the 
 ### `syncOne(syncConfig, creator, apiKey, cwd?, options?)`
 
 `async`. The single-group form of `syncAll`, taking one `[[sync]]` entry and the `creator` directly.
+
+### `resolveAssetType(syncConfig, ext)`
+
+Decides how one file is treated, given its group config and its lower-case extension. Returns `{ assetType }` to upload it as that type, `{ skip: "converted", assetType }` when it is a [converted format](#converted_ext_to_asset_type) the group has not allowed (the `assetType` is what it *would* become), or `{ skip: "unsupported" }` for an extension rocas does not know.
+
+`syncConfig.assetType` overrides auto-detection but never grants permission: a `.fbx` still needs `allowConvertedFormats = true`.
 
 ### `needsImageId(entry, assetType)`
 
@@ -132,7 +139,7 @@ Object mapping lower-case file extensions to Roblox asset types, e.g. `{ ".png":
 
 ### `CONVERTED_EXT_TO_ASSET_TYPE`
 
-`{ ".fbx": "Model", ".glb": "Model", ".gltf": "Model", ".obj": "Model" }` — the formats Roblox converts on upload. Uploading one produces a `Model` and the original file is not recoverable, so [`fetchAll`](#fetchallconfig-apikey-cwd-options) cannot restore it. These are deliberately **not** in `EXT_TO_ASSET_TYPE`: a group has to set `assetType = "Model"` to sync them. The table is still used to describe a file (the Studio manifest calls a `.fbx` a `Model`).
+`{ ".fbx": "Model", ".glb": "Model", ".gltf": "Model", ".obj": "Model" }` — the formats Roblox converts on upload. Uploading one produces a `Model` and the original file is not recoverable, so [`fetchAll`](#fetchallconfig-apikey-cwd-options) cannot restore it. These are deliberately **not** in `EXT_TO_ASSET_TYPE`: a group has to set `allowConvertedFormats = true` to sync them, which is a separate switch from `assetType` so that choosing an asset type cannot silently enable one-way uploads. The table is still used to describe a file (the Studio manifest calls a `.fbx` a `Model`).
 
 ## Watching
 

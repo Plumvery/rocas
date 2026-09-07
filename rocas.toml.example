@@ -11,7 +11,8 @@ id = 123456789      # Your Roblox User ID or Group ID
 # Model, so animation exports need assetType = "Animation" on their group.
 # Mesh formats (.fbx .glb .gltf .obj) are the exception: Roblox converts those
 # into a Model on upload and never gives the original file back, so `rocas fetch`
-# cannot restore them. They are skipped unless the group says assetType = "Model".
+# cannot restore them. They are skipped unless the group sets
+# allowConvertedFormats = true.
 # output generates a strict .luau file by default.
 
 [[sync]]
@@ -28,7 +29,7 @@ output = "src/shared/sounds"
 name = "meshes"
 path = "assets/meshes"
 output = "src/shared/meshes"
-assetType = "Model"   # required for .fbx / .glb / .gltf / .obj
+allowConvertedFormats = true   # required for .fbx / .glb / .gltf / .obj
 
 [[sync]]
 name = "animations"
@@ -49,6 +50,10 @@ output = "src/shared/videos"
 # resolveImageIds: true (default) resolves the decal id Open Cloud returns for an
 #   image into the image id inside it, so ImageLabel.Image works. Needs an API key
 #   with read access to Assets. Set it to false to always emit the decal id.
+# allowConvertedFormats: false (default) skips .fbx / .glb / .gltf / .obj, because
+#   Roblox converts them into a Model and `rocas fetch` cannot bring the original
+#   file back. Set it to true to upload them anyway. assetType does not unlock
+#   them — it only picks which type to upload as.
 
 # Example: roblox-ts project
 # [[sync]]

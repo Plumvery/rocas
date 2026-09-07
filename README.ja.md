@@ -156,20 +156,22 @@ rocas watch
 | 画像 | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
 | 音声 | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
 | モデル | `.rbxm` `.rbxmx` | `Model` |
-| メッシュ | `.fbx` `.glb` `.gltf` `.obj` | `Model` — `assetType` の明示が必要 |
+| メッシュ | `.fbx` `.glb` `.gltf` `.obj` | `Model` — `allowConvertedFormats` が必要 |
 | 動画 | `.mp4` `.mov` | `Video` |
 
 アセットタイプはファイル拡張子から自動判定され、グループごとに `assetType` で上書きできます。
 
 > [!IMPORTANT]
-> メッシュ形式は自動判定の対象では **ありません**。`.fbx` / `.glb` / `.gltf` / `.obj` はアップロード時に Roblox が `Model` へ変換し、元のファイルは返ってきません。つまり [`rocas fetch`](#アセットを取り戻す) では戻せないので、グループで名指ししない限り理由を添えて skip します。
+> メッシュ形式は自動判定の対象では **ありません**。`.fbx` / `.glb` / `.gltf` / `.obj` はアップロード時に Roblox が `Model` へ変換し、元のファイルは返ってきません。つまり [`rocas fetch`](#アセットを取り戻す) では戻せないので、グループが明示的に許可しない限り理由を添えて skip します。
 >
 > ```toml
 > [[sync]]
 > name = "meshes"
 > path = "assets/meshes"
-> assetType = "Model"   # これが無いと .fbx は skip される
+> allowConvertedFormats = true   # これが無いと .fbx は skip される
 > ```
+>
+> `assetType` では通りません。あれは「どの型で上げるか」の指定です。許可を別のスイッチに分けてあるのは、別の理由で `assetType` を書いた人が、片道アップロードまで知らずに有効にしてしまわないようにするためです。
 
 アニメーションも `.rbxm` で書き出されますが、`.rbxm` は `Model` として同期されます。アニメーションのグループはその旨を明示してください。
 
@@ -217,6 +219,7 @@ output = "src/shared/images" # デフォルトでは images.luau を生成
 # format = "luau"            # "luau"（デフォルト）または "roblox-ts"
 # stripExtensions = false    # 生成キーからファイル拡張子を除去
 # resolveImageIds = true     # Decal ID から Image ID を解決（デフォルト true）
+# allowConvertedFormats = true # 取り戻せない .fbx/.glb/.gltf/.obj を許可する
 ```
 
 コメント付きの完全なリファレンスは [`rocas.toml.example`](rocas.toml.example) を参照してください。
@@ -290,7 +293,7 @@ rocas fetch --out .rocas-cache  # 出力先の指定
 > **sync の `path` の中へ落とさないこと。** ダウンロードしたファイルは元ファイルとバイト一致しないため、次の `rocas sync` が「変わった」と判定します。`Model` なら無駄なアップロードが走るだけですが、`Decal` / `Audio` / `Video` は **新しい assetId** が振られ、既存の参照が全部壊れます。既定の出力先がどの `path` の外にもあるのはこのためで、`--out` が `path` の中を指していると警告します。
 
 > [!NOTE]
-> **メッシュの元ファイルは戻りません。** `.fbx`（`.glb` / `.gltf` / `.obj` も同じ）を上げると出来上がるのは `Model` で、元のファイルは残りません。往復できるのは `.rbxm` / `.rbxmx` だけなので、実体をリポジトリから外したいなら、モデルの書き出しを `.rbxm` に寄せてグループに `assetType = "Model"` を指定してください。
+> **メッシュの元ファイルは戻りません。** `.fbx`（`.glb` / `.gltf` / `.obj` も同じ）を上げると出来上がるのは `Model` で、元のファイルは残りません。往復できるのは `.rbxm` / `.rbxmx` だけなので、実体をリポジトリから外したいなら、モデルの書き出しを `.rbxm` に寄せてください。追加の設定は要らず、そのまま `Model` として同期されます。
 
 単体のアセットは [`fetchAssetContent`](docs/api.ja.md#fetchassetcontentassetid-options) が本体をそのまま返します。
 

@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Converted formats now need their own opt-in.** `.fbx`, `.glb`, `.gltf`, and `.obj` are unlocked by `allowConvertedFormats = true` on the group, not by `assetType = "Model"`. `assetType` says *which* type to upload as; it was doing double duty as permission to upload a format `rocas fetch` can never restore, which meant setting it for an unrelated reason silently enabled one-way uploads. A group that relied on `assetType = "Model"` to sync meshes now skips them until `allowConvertedFormats = true` is added; nothing is re-uploaded and no asset IDs change.
+
+### Added
+
+- `resolveAssetType(syncConfig, ext)` is exported: the pure decision behind the skip, returning the asset type or why the file was skipped.
+
 ## [0.3.1] - 2026-09-07
 
 ### Added
