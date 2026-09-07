@@ -8,6 +8,7 @@
 [Open Cloud Assets API](https://create.roblox.com/docs/cloud/guides/usage-assets) 経由で Roblox にアップロードし、
 型付きの Luau / roblox-ts バインディングを自動生成します。
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Plumvery/rocas/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white)](https://github.com/Plumvery/rocas/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![Roblox Open Cloud](https://img.shields.io/badge/Roblox-Open%20Cloud-00A2FF?style=flat-square&logo=roblox&logoColor=white)](https://create.roblox.com/docs/cloud/guides/usage-assets)

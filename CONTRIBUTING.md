@@ -26,6 +26,10 @@ npm test        # runs node test/test.js
 
 The test suite is a single script using `node:assert` — no test framework. It makes no network calls; upload behavior is covered by testing the pure planning/codegen functions. Please add tests for any behavior change and make sure the suite passes before opening a PR.
 
+[CI](.github/workflows/ci.yml) runs the same suite on every pull request, on Linux and Windows against Node 18 (the `engines` floor) and 22. Windows is not decoration: lock keys normalize `\` to `/`, and the Studio plugin folder and the `rocas fetch` output-directory check both read `path.sep`.
+
+CI installs with `npm ci --ignore-scripts`, which skips the `lz4` native build noted above — `rbxm-parser` falls back to pure JS, so the suite passes without a compiler.
+
 ## Project layout
 
 ```text

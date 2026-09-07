@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同じブランチへ続けて push したら古い実行は畳む
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows も回す: ロックのキーは \ を / へ正規化しているし、Studio の
+        # Plugins フォルダ解決と fetch の出力先判定は path.sep を見ている。
+        os: [ubuntu-latest, windows-latest]
+        # 18 は package.json の engines の下限、22 は現行 LTS。
+        node: [18, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # --ignore-scripts: 依存の lz4 が install スクリプトで node-gyp rebuild を
+      # 走らせるが、rbxm-parser は純 JS のフォールバックで動くのでビルドは要らない。
+      # ネイティブビルドを CI から外して、実行を速く・決定的に保つ。
+      - run: npm ci --ignore-scripts
+
+      - run: npm test
