@@ -49,7 +49,7 @@ No manual asset ID copy-pasting, no stale IDs, no untyped string tables.
 - **roblox-ts compatible** — opt in to `.luau` + `.d.ts` pairs in an Asphalt-like shape
 - **Studio plugin** — browse, search, preview, and insert synced assets without leaving Studio
 - **Local preview mode** — browse local assets in Studio without an Open Cloud API key
-- **CLI + library** — use `rocas sync` or `require("rocas")`
+- **CLI + library** — use `rocas sync` or `require("@plumvery/rocas")`
 
 ## Requirements
 
@@ -66,14 +66,17 @@ No manual asset ID copy-pasting, no stale IDs, no untyped string tables.
 Globally, as a CLI:
 
 ```bash
-npm install -g github:Plumvery/rocas
+npm install -g @plumvery/rocas
 ```
 
 Or as a project dev dependency:
 
 ```bash
-npm install --save-dev github:Plumvery/rocas
+npm install --save-dev @plumvery/rocas
 ```
+
+> [!NOTE]
+> The package is scoped, but the command it installs is plain `rocas`. The unscoped package name was rejected by the npm registry as too similar to existing packages.
 
 ## Quick start
 
@@ -292,7 +295,7 @@ That is what makes it possible to keep asset bodies out of the repository: commi
 For a single asset, [`fetchAssetContent`](docs/api.md#fetchassetcontentassetid-options) returns the bytes directly:
 
 ```javascript
-const { fetchAssetContent } = require("rocas");
+const { fetchAssetContent } = require("@plumvery/rocas");
 
 const rbxm = await fetchAssetContent(assetId, { apiKey });
 const older = await fetchAssetContent(assetId, { apiKey, version: 3 });
@@ -458,7 +461,7 @@ imageLabel.Image = images.ui["button.png"];
 ## Programmatic usage
 
 ```javascript
-const { loadConfig, loadEnv, syncAll } = require("rocas");
+const { loadConfig, loadEnv, syncAll } = require("@plumvery/rocas");
 
 loadEnv();
 const config = loadConfig();
@@ -475,7 +478,7 @@ Every export — sync, codegen, lock-file, and Studio plugin helpers — is docu
 Codegen formats are pluggable. A format is any object with a `name` and a `render` function that returns the files to write:
 
 ```javascript
-const { registerCodegenFormat, listCodegenFormats } = require("rocas");
+const { registerCodegenFormat, listCodegenFormats } = require("@plumvery/rocas");
 
 registerCodegenFormat({
 	name: "json",

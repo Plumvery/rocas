@@ -49,7 +49,7 @@ imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
 - **roblox-ts 互換** — オプトインで Asphalt 風の `.luau` + `.d.ts` ペアを出力
 - **Studio プラグイン** — Studio を離れずに同期済みアセットの閲覧・検索・プレビュー・挿入
 - **ローカルプレビューモード** — Open Cloud API キーなしでローカルアセットを Studio で閲覧
-- **CLI + ライブラリ** — `rocas sync` でも `require("rocas")` でも
+- **CLI + ライブラリ** — `rocas sync` でも `require("@plumvery/rocas")` でも
 
 ## 動作要件
 
@@ -66,14 +66,17 @@ imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
 グローバルに CLI として:
 
 ```bash
-npm install -g github:Plumvery/rocas
+npm install -g @plumvery/rocas
 ```
 
 またはプロジェクトの devDependency として:
 
 ```bash
-npm install --save-dev github:Plumvery/rocas
+npm install --save-dev @plumvery/rocas
 ```
+
+> [!NOTE]
+> パッケージ名はスコープ付きですが、入るコマンドは `rocas` のままです。スコープ無しの名前は、既存パッケージと紛らわしいとして npm レジストリに拒否されました。
 
 ## クイックスタート
 
@@ -292,7 +295,7 @@ rocas fetch --out .rocas-cache  # 出力先の指定
 単体のアセットは [`fetchAssetContent`](docs/api.ja.md#fetchassetcontentassetid-options) が本体をそのまま返します。
 
 ```javascript
-const { fetchAssetContent } = require("rocas");
+const { fetchAssetContent } = require("@plumvery/rocas");
 
 const rbxm = await fetchAssetContent(assetId, { apiKey });
 const older = await fetchAssetContent(assetId, { apiKey, version: 3 });
@@ -458,7 +461,7 @@ imageLabel.Image = images.ui["button.png"];
 ## ライブラリとしての利用
 
 ```javascript
-const { loadConfig, loadEnv, syncAll } = require("rocas");
+const { loadConfig, loadEnv, syncAll } = require("@plumvery/rocas");
 
 loadEnv();
 const config = loadConfig();
@@ -475,7 +478,7 @@ await syncAll(config, process.env.ROCAS_API_KEY);
 コード生成フォーマットはプラグイン式です。フォーマットは `name` と、書き出すファイル群を返す `render` 関数を持つオブジェクトです:
 
 ```javascript
-const { registerCodegenFormat, listCodegenFormats } = require("rocas");
+const { registerCodegenFormat, listCodegenFormats } = require("@plumvery/rocas");
 
 registerCodegenFormat({
 	name: "json",

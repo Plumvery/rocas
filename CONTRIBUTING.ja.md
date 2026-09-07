@@ -36,7 +36,7 @@ CI はネイティブビルド込みで `npm ci` を回します。`lz4` のビ�
 bin/
   rocas.js          CLI エントリポイント（引数解析のみ — ロジックは src/ 側）
 src/
-  index.js          ライブラリの公開サーフェス（require("rocas") がエクスポートするすべて）
+  index.js          ライブラリの公開サーフェス（require("@plumvery/rocas") がエクスポートするすべて）
   config.js         .env + rocas.toml の読み込み
   sync.js           同期のオーケストレーション、拡張子 → assetType マッピング
   upload.js         Open Cloud Assets API クライアント

@@ -2,10 +2,10 @@
 
 [English](api.md) | **日本語**
 
-`require("rocas")` がエクスポートするすべての一覧です。CLI（[`bin/rocas.js`](../bin/rocas.js)）はこれらの関数の薄いラッパーなので、CLI でできることはすべてプログラムからも実行できます。
+`require("@plumvery/rocas")` がエクスポートするすべての一覧です。CLI（[`bin/rocas.js`](../bin/rocas.js)）はこれらの関数の薄いラッパーなので、CLI でできることはすべてプログラムからも実行できます。
 
 ```javascript
-const rocas = require("rocas");
+const rocas = require("@plumvery/rocas");
 ```
 
 - [共通のデータ形状](#共通のデータ形状) — [`Config`](#config)、[`Lock`](#lock)、[`Manifest`](#manifest)
@@ -203,7 +203,7 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 - すべてのエンドポイントが失敗した場合は throw します。
 
 ```javascript
-const { fetchAssetContent } = require("rocas");
+const { fetchAssetContent } = require("@plumvery/rocas");
 
 const rbxm = await fetchAssetContent("123456789", { apiKey });
 const older = await fetchAssetContent("123456789", { apiKey, version: 3 });

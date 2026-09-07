@@ -36,7 +36,7 @@ CI runs a full `npm ci`, native build included. The `lz4` build is not optional:
 bin/
   rocas.js          CLI entry point (argument parsing only — logic lives in src/)
 src/
-  index.js          Public library surface (everything require("rocas") exports)
+  index.js          Public library surface (everything require("@plumvery/rocas") exports)
   config.js         .env + rocas.toml loading
   sync.js           Sync orchestration, extension → assetType mapping
   upload.js         Open Cloud Assets API client
