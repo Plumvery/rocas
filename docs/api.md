@@ -128,7 +128,7 @@ Image ID resolution never fails a sync: a failure logs a warning and leaves the 
 
 ### `EXT_TO_ASSET_TYPE`
 
-Object mapping lower-case file extensions to Roblox asset types, e.g. `{ ".png": "Decal", ".mp3": "Audio", ".rbxm": "Animation", ".mp4": "Video", … }`. Used for auto-detection whenever a group has no `assetType` override.
+Object mapping lower-case file extensions to Roblox asset types, e.g. `{ ".png": "Decal", ".mp3": "Audio", ".rbxm": "Model", ".mp4": "Video", … }`. Used for auto-detection whenever a group has no `assetType` override. `.rbxm` / `.rbxmx` map to `Model` — the only format that survives a fetch round trip — so a group of animation exports needs `assetType = "Animation"`.
 
 ### `CONVERTED_EXT_TO_ASSET_TYPE`
 

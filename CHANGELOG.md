@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`.rbxm` and `.rbxmx` now sync as `Model` instead of `Animation`.** They are the only formats that survive a `rocas fetch` round trip, so they are the ones a project should be able to reach for without ceremony — and as `Model` they also get in-place updates, keeping their asset IDs across edits. Animation exports are `.rbxm` too and now need `assetType = "Animation"` on their group. **A group that has been syncing `.rbxm` without an explicit `assetType` will re-upload every one of them as a new `Model` with a new asset ID on the next sync**, because the resolved asset type is part of the config fingerprint; set `assetType = "Animation"` before syncing to keep the old behavior and the old IDs.
 - **Mesh formats are no longer auto-detected.** `.fbx`, `.glb`, `.gltf`, and `.obj` upload as a `Model` and Roblox never returns the original file, so `rocas fetch` cannot restore them — keeping a repository free of asset bodies is impossible while they sync implicitly. A group now has to set `assetType = "Model"` to upload them; without it the file is skipped with a line explaining why. Only `.rbxm` / `.rbxmx` round-trip. Existing groups that already set `assetType` are unaffected, and the Studio manifest still describes a `.fbx` as a `Model`.
 
 ### Fixed

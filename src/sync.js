@@ -44,9 +44,10 @@ const EXT_TO_ASSET_TYPE = {
 	".ogg": "Audio",
 	".wav": "Audio",
 	".flac": "Audio",
-	// アニメーション
-	".rbxm": "Animation",
-	".rbxmx": "Animation",
+	// Roblox のモデルファイル。上げたものがそのまま返る唯一の形式なので Model を既定にする。
+	// アニメーションも .rbxm で書き出されるが、そちらはグループに assetType = "Animation" を要求する。
+	".rbxm": "Model",
+	".rbxmx": "Model",
 	// 動画
 	".mp4": "Video",
 	".mov": "Video",

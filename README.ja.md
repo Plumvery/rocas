@@ -151,8 +151,8 @@ rocas watch
 |------|------------|--------------------|
 | 画像 | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
 | 音声 | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
+| モデル | `.rbxm` `.rbxmx` | `Model` |
 | メッシュ | `.fbx` `.glb` `.gltf` `.obj` | `Model` — `assetType` の明示が必要 |
-| アニメーション | `.rbxm` `.rbxmx` | `Animation` |
 | 動画 | `.mp4` `.mov` | `Video` |
 
 アセットタイプはファイル拡張子から自動判定され、グループごとに `assetType` で上書きできます。
@@ -166,6 +166,18 @@ rocas watch
 > path = "assets/meshes"
 > assetType = "Model"   # これが無いと .fbx は skip される
 > ```
+
+アニメーションも `.rbxm` で書き出されますが、`.rbxm` は `Model` として同期されます。アニメーションのグループはその旨を明示してください。
+
+```toml
+[[sync]]
+name = "animations"
+path = "assets/animations"
+assetType = "Animation"
+```
+
+> [!WARNING]
+> `.rbxm` / `.rbxmx` の既定は以前は `Animation` でした。`assetType` を明示せずにこれらを同期してきたグループは、次の `rocas sync` で assetType の変更が設定変更として扱われ、**すべて新しい `Model` として再アップロードされて assetId が変わります**。以前の挙動と ID を保つには、同期する前にグループへ `assetType = "Animation"` を指定してください。
 
 ### Image ID
 
@@ -241,7 +253,7 @@ rocas は各同期ディレクトリの中に `<name>.lock.json` を保持しま
 対象は `Model` だけです。Open Cloud は `Audio`・`Decal`・`Mesh`・`Video`・`Animation` の内容更新に対応していないので、これらを編集した場合は従来どおり新しい ID で新規アップロードになります。
 
 > [!NOTE]
-> `.rbxm` と `.rbxmx` の既定の assetType は `Animation` です。モデルとして同期してその場での更新を効かせるには、グループに `assetType = "Model"` を指定してください。バイナリの `.rbxm` はその場で更新できます（2026-09-04 に実 API で確認）。Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は今も内容更新を `.fbx` に限ると書いていますが、実際には通ります。
+> `.rbxm` と `.rbxmx` の既定の assetType は `Model` なので、編集すると既存アセットがその場で更新されます。バイナリの `.rbxm` でも更新できます（2026-09-04 に実 API で確認）。Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は今も内容更新を `.fbx` に限ると書いていますが、実際には通ります。アニメーションを置いているグループには `assetType = "Animation"` が必要で、そちらは編集のたびに新規アップロードになります。
 
 `output`・`format`・`stripExtensions` の変更はコード生成にのみ影響し、再アップロードは発生しません。`rocas watch` は `rocas.toml` 自体も監視するので、設定を保存すると再読み込みして同期が走ります。
 

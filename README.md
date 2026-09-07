@@ -151,8 +151,8 @@ rocas watch
 |------|------------|--------------------|
 | Image | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
 | Audio | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
+| Model | `.rbxm` `.rbxmx` | `Model` |
 | Mesh | `.fbx` `.glb` `.gltf` `.obj` | `Model` — needs an explicit `assetType` |
-| Animation | `.rbxm` `.rbxmx` | `Animation` |
 | Video | `.mp4` `.mov` | `Video` |
 
 Asset types are detected from the file extension, and can be overridden per group with `assetType`.
@@ -166,6 +166,18 @@ Asset types are detected from the file extension, and can be overridden per grou
 > path = "assets/meshes"
 > assetType = "Model"   # without this, .fbx files are skipped
 > ```
+
+Animations are `.rbxm` files too, and `.rbxm` syncs as a `Model`, so a group of animation exports has to say so:
+
+```toml
+[[sync]]
+name = "animations"
+path = "assets/animations"
+assetType = "Animation"
+```
+
+> [!WARNING]
+> `.rbxm` and `.rbxmx` used to default to `Animation`. A group that has been syncing them **without** an explicit `assetType` sees the asset type change as a config change on the next `rocas sync`, which re-uploads every one of them as a new `Model` with a **new asset ID**. Set `assetType = "Animation"` on the group before syncing to keep the old behavior and the old IDs.
 
 ### Image IDs
 
@@ -241,7 +253,7 @@ When only the file content changed — the creator and `assetType` still match t
 This only applies to the `Model` asset type. Open Cloud does not support content updates for `Audio`, `Decal`, `Mesh`, `Video`, or `Animation`, so editing one of those still uploads a new asset with a new ID.
 
 > [!NOTE]
-> `.rbxm` and `.rbxmx` default to the `Animation` asset type. Set `assetType = "Model"` on the group to sync them as models and get in-place updates. Binary `.rbxm` models do update in place — measured against the live API on 2026-09-04 — even though Roblox's [asset guide](https://create.roblox.com/docs/cloud/guides/usage-assets) still says content updates are limited to `.fbx`.
+> `.rbxm` and `.rbxmx` default to the `Model` asset type, so editing one updates the existing asset in place. Binary `.rbxm` models do update in place — measured against the live API on 2026-09-04 — even though Roblox's [asset guide](https://create.roblox.com/docs/cloud/guides/usage-assets) still says content updates are limited to `.fbx`. A group carrying animation exports needs `assetType = "Animation"`, and those still upload a new asset on every edit.
 
 Editing `output`, `format`, or `stripExtensions` only regenerates code; it never forces a re-upload. `rocas watch` also watches `rocas.toml` itself, so saving a config change reloads it and triggers a sync.
 

@@ -128,7 +128,7 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 
 ### `EXT_TO_ASSET_TYPE`
 
-小文字の拡張子から Roblox アセットタイプへのマッピングオブジェクト。例: `{ ".png": "Decal", ".mp3": "Audio", ".rbxm": "Animation", ".mp4": "Video", … }`。グループに `assetType` の上書きが無い場合の自動判定に使われます。
+小文字の拡張子から Roblox アセットタイプへのマッピングオブジェクト。例: `{ ".png": "Decal", ".mp3": "Audio", ".rbxm": "Model", ".mp4": "Video", … }`。グループに `assetType` の上書きが無い場合の自動判定に使われます。`.rbxm` / `.rbxmx` は `Model` です（取得で往復できる唯一の形式のため）。アニメーションを置くグループには `assetType = "Animation"` が必要です。
 
 ### `CONVERTED_EXT_TO_ASSET_TYPE`
 
