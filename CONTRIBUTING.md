@@ -28,7 +28,7 @@ The test suite is a single script using `node:assert` — no test framework. It 
 
 [CI](.github/workflows/ci.yml) runs the same suite on every pull request, on Linux and Windows against Node 18 (the `engines` floor) and 22. Windows is not decoration: lock keys normalize `\` to `/`, and the Studio plugin folder and the `rocas fetch` output-directory check both read `path.sep`.
 
-CI installs with `npm ci --ignore-scripts`, which skips the `lz4` native build noted above — `rbxm-parser` falls back to pure JS, so the suite passes without a compiler.
+CI runs a full `npm ci`, native build included. The `lz4` build is not optional: the published package ships a prebuilt `xxhash.node` that no runner can load (`invalid ELF header` on Linux, `not a valid Win32 application` on Windows), and `rbxm-parser` requires it unconditionally. The GitHub runners have the toolchain; only macOS needs the `SDKROOT` workaround above.
 
 ## Project layout
 

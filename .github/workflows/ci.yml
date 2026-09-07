@@ -31,9 +31,10 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      # --ignore-scripts: 依存の lz4 が install スクリプトで node-gyp rebuild を
-      # 走らせるが、rbxm-parser は純 JS のフォールバックで動くのでビルドは要らない。
-      # ネイティブビルドを CI から外して、実行を速く・決定的に保つ。
-      - run: npm ci --ignore-scripts
+      # install スクリプトは飛ばせない。rbxm-parser が読む lz4 は tarball に
+      # ビルド済みの xxhash.node を同梱しているが、それはどの runner でも
+      # 読めない (Linux では invalid ELF header、Windows では not a valid Win32
+      # application)。node-gyp rebuild を走らせて自前でビルドする必要がある。
+      - run: npm ci
 
       - run: npm test
