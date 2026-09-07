@@ -156,20 +156,22 @@ rocas watch
 | Image | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
 | Audio | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
 | Model | `.rbxm` `.rbxmx` | `Model` |
-| Mesh | `.fbx` `.glb` `.gltf` `.obj` | `Model` — needs an explicit `assetType` |
+| Mesh | `.fbx` `.glb` `.gltf` `.obj` | `Model` — needs `allowConvertedFormats` |
 | Video | `.mp4` `.mov` | `Video` |
 
 Asset types are detected from the file extension, and can be overridden per group with `assetType`.
 
 > [!IMPORTANT]
-> Mesh formats are **not** auto-detected. Roblox converts `.fbx`, `.glb`, `.gltf`, and `.obj` into a `Model` on upload and never hands the original file back, so [`rocas fetch`](#fetching-assets-back) can't restore them. rocas skips them with an explanation unless the group asks for them by name:
+> Mesh formats are **not** auto-detected. Roblox converts `.fbx`, `.glb`, `.gltf`, and `.obj` into a `Model` on upload and never hands the original file back, so [`rocas fetch`](#fetching-assets-back) can't restore them. rocas skips them with an explanation unless the group opts in:
 >
 > ```toml
 > [[sync]]
 > name = "meshes"
 > path = "assets/meshes"
-> assetType = "Model"   # without this, .fbx files are skipped
+> allowConvertedFormats = true   # without this, .fbx files are skipped
 > ```
+>
+> `assetType` does **not** unlock them; it only says which type to upload as. The opt-in is its own switch on purpose, so that setting `assetType` for an unrelated reason can't quietly turn on one-way uploads.
 
 Animations are `.rbxm` files too, and `.rbxm` syncs as a `Model`, so a group of animation exports has to say so:
 
@@ -217,6 +219,7 @@ output = "src/shared/images" # Generates images.luau by default
 # format = "luau"            # "luau" (default) or "roblox-ts"
 # stripExtensions = false    # Remove file extensions from generated keys
 # resolveImageIds = true     # Resolve decal IDs to image IDs (default true)
+# allowConvertedFormats = true # Allow .fbx/.glb/.gltf/.obj, which cannot be fetched back
 ```
 
 See [`rocas.toml.example`](rocas.toml.example) for a fully commented reference.
@@ -290,7 +293,7 @@ That is what makes it possible to keep asset bodies out of the repository: commi
 > **Don't fetch into a synced path.** A downloaded file is not byte-for-byte identical to the original, so the next `rocas sync` reads it as changed. For a `Model` that costs a pointless upload; for `Decal`, `Audio`, and `Video` it mints a **new asset ID** and breaks every reference to the old one. The default output directory sits outside every synced path for exactly this reason, and rocas warns when `--out` points inside one.
 
 > [!NOTE]
-> **Mesh sources never come back.** Uploading `.fbx` (or `.glb`, `.gltf`, `.obj`) produces a `Model`; the original file is gone. Only `.rbxm` / `.rbxmx` round-trip, so a project that wants the bytes out of the repository should export models as `.rbxm` and set `assetType = "Model"` on the group.
+> **Mesh sources never come back.** Uploading `.fbx` (or `.glb`, `.gltf`, `.obj`) produces a `Model`; the original file is gone. Only `.rbxm` / `.rbxmx` round-trip, so a project that wants the bytes out of the repository should export models as `.rbxm` — which syncs as a `Model` with no extra configuration.
 
 For a single asset, [`fetchAssetContent`](docs/api.md#fetchassetcontentassetid-options) returns the bytes directly:
 

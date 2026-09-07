@@ -58,8 +58,9 @@ const EXT_TO_ASSET_TYPE = {
  *
  * .fbx / .glb / .gltf / .obj を上げると Roblox が作るのは MeshPart 化済みの Model で、
  * 元のファイルは二度と取り出せない。`rocas fetch` で戻せない = 実体をリポジトリから
- * 外せないということなので、自動判定からは外し、`assetType` を明示したときだけ通す。
- * 判定表そのものは残す: マニフェストなど「このファイルは何か」を説明する側では使う。
+ * 外せないということなので、グループが `allowConvertedFormats = true` で明示的に
+ * 許可したときだけ通す。判定表そのものは残す: マニフェストなど「このファイルは何か」
+ * を説明する側では使う。
  */
 const CONVERTED_EXT_TO_ASSET_TYPE = {
 	".fbx": "Model",
@@ -123,6 +124,29 @@ function planSyncAction(cached, hash, fingerprint, assetType) {
 }
 
 /**
+ * このファイルをどの assetType で上げるか、そもそも上げないかを決める。
+ *
+ * `assetType` は「どの型で上げるか」の指定であって、往復できない形式を通す許可では
+ * ない。両方を兼ねさせると、`assetType = "Model"` と書いただけの人が .fbx の
+ * 片道アップロードまで有効にしてしまうので、許可は `allowConvertedFormats` に分ける。
+ * @param {object} syncConfig - { assetType?, allowConvertedFormats? }
+ * @param {string} ext - 小文字の拡張子 (".fbx" など)
+ * @returns {{ assetType: string, skip?: undefined } | { skip: "converted" | "unsupported", assetType?: string }}
+ *   assetType    - この型で上げる
+ *   "converted"  - 変換される形式だが許可されていない (assetType には変換後の型が入る)
+ *   "unsupported" - 対応していない拡張子
+ */
+function resolveAssetType(syncConfig, ext) {
+	const converted = CONVERTED_EXT_TO_ASSET_TYPE[ext];
+	if (converted && syncConfig.allowConvertedFormats !== true) {
+		return { skip: "converted", assetType: converted };
+	}
+
+	const assetType = syncConfig.assetType || EXT_TO_ASSET_TYPE[ext] || converted;
+	return assetType ? { assetType } : { skip: "unsupported" };
+}
+
+/**
  * このロックエントリが Image ID の解決を必要とするか。
  * 画像 (Decal) で、アップロード済みで、まだ imageId を持っていないものだけが対象。
  * 旧ロック (imageId 無し) は再アップロードせずに補完できる。
@@ -159,7 +183,7 @@ function walkDir(dir, base = dir) {
 
 /**
  * sync セクション 1 つを処理
- * @param {object} syncConfig - { name, path, output, assetType?, resolveImageIds? }
+ * @param {object} syncConfig - { name, path, output, assetType?, allowConvertedFormats?, resolveImageIds? }
  * @param {{ type: string, id: number }} creator
  * @param {string} apiKey
  * @param {string} cwd
@@ -215,19 +239,20 @@ async function syncOne(syncConfig, creator, apiKey, cwd, options = {}) {
 	for (const { filePath, relPath } of files) {
 		const ext = path.extname(filePath).toLowerCase();
 
-		// assetType: 設定で明示指定されていれば優先、なければ拡張子から自動判定
-		const assetType = syncConfig.assetType || EXT_TO_ASSET_TYPE[ext];
-		if (!assetType) {
-			const converted = CONVERTED_EXT_TO_ASSET_TYPE[ext];
-			if (converted) {
-				console.log(
-					`[${syncConfig.name}] skip: ${relPath} (${ext} is converted to a ${converted} on upload and cannot be fetched back; set assetType = "${converted}" to upload it anyway)`,
-				);
-			} else {
-				console.log(`[${syncConfig.name}] skip: unsupported extension (${relPath})`);
-			}
+		// assetType: 設定で明示指定されていれば優先、なければ拡張子から自動判定。
+		// 変換される形式は allowConvertedFormats で明示的に許可されていなければ通さない。
+		const resolved = resolveAssetType(syncConfig, ext);
+		if (resolved.skip === "converted") {
+			console.log(
+				`[${syncConfig.name}] skip: ${relPath} (${ext} is converted to a ${resolved.assetType} on upload and cannot be fetched back; set allowConvertedFormats = true on this group to upload it anyway)`,
+			);
 			continue;
 		}
+		if (resolved.skip === "unsupported") {
+			console.log(`[${syncConfig.name}] skip: unsupported extension (${relPath})`);
+			continue;
+		}
+		const assetType = resolved.assetType;
 
 		const key = relPath.replace(/\\/g, "/");
 		const hash = fileHash(filePath);
@@ -341,6 +366,7 @@ module.exports = {
 	fileHash,
 	configFingerprint,
 	planSyncAction,
+	resolveAssetType,
 	needsImageId,
 	EXT_TO_ASSET_TYPE,
 	CONVERTED_EXT_TO_ASSET_TYPE,

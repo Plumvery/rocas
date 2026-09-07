@@ -3,7 +3,7 @@ const { syncAll } = require("./sync");
 const { fetchAll } = require("./fetch");
 const { uploadAsset, updateAsset } = require("./upload");
 const { generateLuau, generateDts } = require("./codegen");
-const { EXT_TO_ASSET_TYPE, CONVERTED_EXT_TO_ASSET_TYPE } = require("./sync");
+const { EXT_TO_ASSET_TYPE, CONVERTED_EXT_TO_ASSET_TYPE, resolveAssetType } = require("./sync");
 const { watchAll } = require("./watch");
 const { fetchAssetContent, fetchDecalImageId, extractImageIdFromAssetBody } = require("./image-id");
 const { buildAssetMap, loadLockForSync, lockPathForSync, normalizeAssetPath, resolveEntryAssetId } = require("./asset-map");
@@ -37,6 +37,7 @@ module.exports = {
 	generateDts,
 	EXT_TO_ASSET_TYPE,
 	CONVERTED_EXT_TO_ASSET_TYPE,
+	resolveAssetType,
 	DEFAULT_CODEGEN_FORMAT,
 	buildAssetMap,
 	buildStudioPluginManifest,

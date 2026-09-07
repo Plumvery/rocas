@@ -10,7 +10,7 @@ const rocas = require("@plumvery/rocas");
 
 - [共通のデータ形状](#共通のデータ形状) — [`Config`](#config)、[`Lock`](#lock)、[`Manifest`](#manifest)
 - [設定](#設定) — [`loadEnv`](#loadenvcwd)、[`loadConfig`](#loadconfigcwd)
-- [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd-options)、[`syncOne`](#synconesyncconfig-creator-apikey-cwd-options)、[`needsImageId`](#needsimageidentry-assettype)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)、[`CONVERTED_EXT_TO_ASSET_TYPE`](#converted_ext_to_asset_type)
+- [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd-options)、[`syncOne`](#synconesyncconfig-creator-apikey-cwd-options)、[`resolveAssetType`](#resolveassettypesyncconfig-ext)、[`needsImageId`](#needsimageidentry-assettype)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)、[`CONVERTED_EXT_TO_ASSET_TYPE`](#converted_ext_to_asset_type)
 - [監視](#監視) — [`watchAll`](#watchallconfig-apikey-options)
 - [アップロード](#アップロード) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)、[`updateAsset`](#updateassetassetid-filepath-assettype-apikey-creator)
 - [取得](#取得) — [`fetchAll`](#fetchallconfig-apikey-cwd-options)、[`fetchAssetContent`](#fetchassetcontentassetid-options)
@@ -41,6 +41,7 @@ const rocas = require("@plumvery/rocas");
       format: "luau",              // 任意 — コード生成フォーマット名（デフォルト "luau"）
       stripExtensions: false,      // 任意 — 生成キーからファイル拡張子を除去
       resolveImageIds: true,       // 任意 — Decal ID から Image ID を解決（デフォルト true）
+      allowConvertedFormats: false, // 任意 — .fbx/.glb/.gltf/.obj を許可（デフォルト false）
     },
   ],
 }
@@ -112,7 +113,7 @@ const rocas = require("@plumvery/rocas");
 4. 更新されたロックファイルを書き込み。
 5. `sync.output` が設定されていればグループのフォーマットでコード生成し、内容が変わったファイルのみ書き込み。
 
-ディレクトリが存在しないグループはログを出してスキップします。未対応の拡張子のファイル（かつ `assetType` 上書きなし）もスキップされます。[変換される形式](#converted_ext_to_asset_type)（`.fbx` など）も同様で、これらはグループで `assetType` を明示しない限り通りません。
+ディレクトリが存在しないグループはログを出してスキップします。未対応の拡張子のファイル（かつ `assetType` 上書きなし）もスキップされます。[変換される形式](#converted_ext_to_asset_type)（`.fbx` など）も同様で、これらはグループで `allowConvertedFormats = true` を指定しない限り通りません。
 
 Image ID の解決が失敗しても同期は止まりません。警告を出して Decal ID を残し、次回の実行で再試行します。3 回連続で失敗するとそのグループの残りではスキップします。
 
@@ -121,6 +122,12 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 ### `syncOne(syncConfig, creator, apiKey, cwd?, options?)`
 
 `async`。`syncAll` の単一グループ版。`[[sync]]` エントリ 1 つと `creator` を直接受け取ります。
+
+### `resolveAssetType(syncConfig, ext)`
+
+グループの設定と小文字の拡張子から、そのファイルの扱いを決めます。戻り値は、その型で上げる場合が `{ assetType }`、[変換される形式](#converted_ext_to_asset_type)なのにグループが許可していない場合が `{ skip: "converted", assetType }`（`assetType` には変換後の型が入ります）、rocas が知らない拡張子の場合が `{ skip: "unsupported" }` です。
+
+`syncConfig.assetType` は自動判定を上書きしますが、許可にはなりません。`.fbx` にはやはり `allowConvertedFormats = true` が要ります。
 
 ### `needsImageId(entry, assetType)`
 
@@ -132,7 +139,7 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 
 ### `CONVERTED_EXT_TO_ASSET_TYPE`
 
-`{ ".fbx": "Model", ".glb": "Model", ".gltf": "Model", ".obj": "Model" }` — アップロード時に Roblox が変換してしまう形式。上げると出来上がるのは `Model` で、元のファイルは取り戻せないため [`fetchAll`](#fetchallconfig-apikey-cwd-options) では復元できません。これらを `EXT_TO_ASSET_TYPE` に **入れていない** のは意図的で、同期するにはグループで `assetType = "Model"` を指定する必要があります。「このファイルは何か」を説明する側（Studio マニフェストが `.fbx` を `Model` と呼ぶなど）では引き続きこの表を使います。
+`{ ".fbx": "Model", ".glb": "Model", ".gltf": "Model", ".obj": "Model" }` — アップロード時に Roblox が変換してしまう形式。上げると出来上がるのは `Model` で、元のファイルは取り戻せないため [`fetchAll`](#fetchallconfig-apikey-cwd-options) では復元できません。これらを `EXT_TO_ASSET_TYPE` に **入れていない** のは意図的で、同期するにはグループで `allowConvertedFormats = true` を指定する必要があります。`assetType` とはスイッチを分けてあり、アセットタイプを選んだだけで片道アップロードが有効になることはありません。「このファイルは何か」を説明する側（Studio マニフェストが `.fbx` を `Model` と呼ぶなど）では引き続きこの表を使います。
 
 ## 監視
 

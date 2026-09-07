@@ -12,6 +12,7 @@ const {
 	syncOne,
 	configFingerprint,
 	planSyncAction,
+	resolveAssetType,
 	fileHash,
 	needsImageId,
 } = require("../src/sync");
@@ -232,6 +233,32 @@ for (const ext of [".fbx", ".glb", ".gltf", ".obj"]) {
 	assert.strictEqual(CONVERTED_EXT_TO_ASSET_TYPE[ext], "Model", `${ext} is known as a converted format`);
 }
 console.log("  extension mapping OK");
+
+// --- Asset type resolution ---
+console.log("Testing asset type resolution...");
+
+// 変換される形式は明示的な許可が要る。assetType は「どの型で上げるか」の指定であって
+// 許可ではないので、それだけでは通らない。
+assert.deepStrictEqual(resolveAssetType({}, ".fbx"), { skip: "converted", assetType: "Model" });
+assert.deepStrictEqual(resolveAssetType({ assetType: "Model" }, ".fbx"), { skip: "converted", assetType: "Model" });
+assert.deepStrictEqual(resolveAssetType({ allowConvertedFormats: false }, ".obj"), {
+	skip: "converted",
+	assetType: "Model",
+});
+assert.deepStrictEqual(resolveAssetType({ allowConvertedFormats: true }, ".fbx"), { assetType: "Model" });
+// 許可さえあれば assetType は要らない (変換後の型が入る)
+assert.deepStrictEqual(resolveAssetType({ allowConvertedFormats: true }, ".gltf"), { assetType: "Model" });
+assert.deepStrictEqual(resolveAssetType({ allowConvertedFormats: true, assetType: "Animation" }, ".fbx"), {
+	assetType: "Animation",
+});
+
+// 変換されない形式は従来どおり
+assert.deepStrictEqual(resolveAssetType({}, ".png"), { assetType: "Decal" });
+assert.deepStrictEqual(resolveAssetType({}, ".rbxm"), { assetType: "Model" });
+assert.deepStrictEqual(resolveAssetType({ assetType: "Animation" }, ".rbxm"), { assetType: "Animation" });
+assert.deepStrictEqual(resolveAssetType({}, ".xyz"), { skip: "unsupported" });
+assert.deepStrictEqual(resolveAssetType({ assetType: "Model" }, ".xyz"), { assetType: "Model" });
+console.log("  asset type resolution OK");
 
 // --- Config fingerprint ---
 console.log("Testing config fingerprint...");
@@ -860,19 +887,38 @@ console.log("  image id propagation OK");
 	assert.strictEqual(audioCalls, 0, "non-image asset types are left alone");
 	console.log("  syncOne image id backfill OK");
 
-	// --- 変換される形式は assetType 明示が無いと skip される ---
+	// --- 変換される形式は allowConvertedFormats 無しでは skip される ---
 	console.log("Testing converted-format skip...");
 
-	const meshDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-mesh-test-"));
-	const meshAssetDir = path.join(meshDir, "assets", "meshes");
-	fs.mkdirSync(meshAssetDir, { recursive: true });
-	fs.writeFileSync(path.join(meshAssetDir, "cube.fbx"), "fbx bytes");
+	function makeMeshDir() {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-mesh-test-"));
+		const assetDir = path.join(dir, "assets", "meshes");
+		fs.mkdirSync(assetDir, { recursive: true });
+		fs.writeFileSync(path.join(assetDir, "cube.fbx"), "fbx bytes");
+		return { dir, lockPath: path.join(assetDir, "meshes.lock.json") };
+	}
+
 	// アップロードを試みれば Open Cloud に出て落ちるので、空のロックが skip の証拠になる
-	await syncOne({ name: "meshes", path: "assets/meshes" }, backfillCreator, "unused-api-key", meshDir);
+	const bareMesh = makeMeshDir();
+	await syncOne({ name: "meshes", path: "assets/meshes" }, backfillCreator, "unused-api-key", bareMesh.dir);
 	assert.deepStrictEqual(
-		JSON.parse(fs.readFileSync(path.join(meshAssetDir, "meshes.lock.json"), "utf8")),
+		JSON.parse(fs.readFileSync(bareMesh.lockPath, "utf8")),
 		{},
-		".fbx is skipped without an explicit assetType",
+		".fbx is skipped without allowConvertedFormats",
+	);
+
+	// assetType は「どの型で上げるか」であって許可ではないので、これだけでは通らない
+	const typedMesh = makeMeshDir();
+	await syncOne(
+		{ name: "meshes", path: "assets/meshes", assetType: "Model" },
+		backfillCreator,
+		"unused-api-key",
+		typedMesh.dir,
+	);
+	assert.deepStrictEqual(
+		JSON.parse(fs.readFileSync(typedMesh.lockPath, "utf8")),
+		{},
+		'assetType = "Model" alone does not unlock .fbx',
 	);
 	console.log("  converted-format skip OK");
 
