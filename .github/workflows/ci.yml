@@ -37,6 +37,10 @@ jobs:
       # ビルド済みの xxhash.node を同梱しているが、それはどの runner でも
       # 読めない (Linux では invalid ELF header、Windows では not a valid Win32
       # application)。node-gyp rebuild を走らせて自前でビルドする必要がある。
+      #
+      # npm 12 は依存の install スクリプトを既定でブロックするので、package.json
+      # の allowScripts に lz4 を入れてある。外すと runner の npm が 12 に上がった
+      # 瞬間にここが黙って素通りし、npm test が ERR_DLOPEN_FAILED で落ちる。
       - run: npm ci
 
       - run: npm test

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-09-07
+
+### Fixed
+
+- **Approve `lz4`'s install script so the package installs under npm 12.** npm 12 blocks a dependency's install scripts unless the project lists it in `allowScripts`, so `npm ci` left `lz4` with the prebuilt binary it ships in its tarball — which no platform can load (`invalid ELF header` on Linux, `not a valid Win32 application` on Windows). `rbxm-parser` requires `lz4` to read `.rbxm` files, so every rocas command died on load. `allowScripts` lets `node-gyp rebuild` run again. 0.4.0 was tagged but never reached the registry: its publish run failed on exactly this.
+
 ## [0.4.0] - 2026-09-07
 
 ### Changed

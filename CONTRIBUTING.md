@@ -30,6 +30,12 @@ The test suite is a single script using `node:assert` — no test framework. It 
 
 CI runs a full `npm ci`, native build included. The `lz4` build is not optional: the published package ships a prebuilt `xxhash.node` that no runner can load (`invalid ELF header` on Linux, `not a valid Win32 application` on Windows), and `rbxm-parser` requires it unconditionally. The GitHub runners have the toolchain; only macOS needs the `SDKROOT` workaround above.
 
+That build only happens because `package.json` lists `lz4` under `allowScripts`. npm 12 blocks a dependency's install scripts unless the project approves them, and a blocked script is a warning, not an error — the install succeeds and the failure surfaces later as `ERR_DLOPEN_FAILED` when something requires `lz4`. If a dependency bump changes the `lz4` version, re-approve it:
+
+```bash
+npm install-scripts approve lz4
+```
+
 ## Project layout
 
 ```text
