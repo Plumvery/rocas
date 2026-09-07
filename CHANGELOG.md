@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-07
+
+### Added
+
+- First npm release, published as `@plumvery/rocas`. The unscoped `rocas` was rejected by the registry as too similar to existing packages (`recast`, `socks`); the CLI command is still `rocas`.
+
+### Changed
+
+- The npm package name is `@plumvery/rocas`, not `rocas`. Nothing about the code changed between 0.3.0 and 0.3.1; 0.3.0 was tagged before the rename and never reached the registry.
+
 ## [0.3.0] - 2026-09-07
 
 ### Added
@@ -12,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rocas fetch` — downloads the assets listed in the lock files, the reverse of `sync`. Files are written as `<assetId>.<ext>` into `.rocas-cache` (`--out` to change it, `--group` to limit the run), with the extension taken from the bytes Roblox returns rather than the original file name. A `<group>.fetch.json` records what was downloaded, so an entry whose lock `assetId` and `hash` are unchanged is not fetched again. Needs an API key with read access to Assets — the same permission image ID resolution already required.
 - `fetchAssetContent(assetId, options)` returns a single asset's body as a `Buffer`, with `options.version` to pin a specific asset version. It shares the asset delivery path that image ID resolution already used (Open Cloud first, legacy `assetdelivery` fallback, redirect following, gzip), and `fetchDecalImageId` is now the same fetch plus `extractImageIdFromAssetBody`.
 - `fetchAll` and `CONVERTED_EXT_TO_ASSET_TYPE` are exported for library use.
-- First npm release, published as `@plumvery/rocas`. The unscoped `rocas` was rejected by the registry as too similar to existing packages (`recast`, `socks`); the CLI command is still `rocas`.
 - In-place asset updates: when only a file's content changed — the creator and `assetType` still match the lock — rocas updates the existing asset through the Open Cloud **Update Asset** endpoint (`PATCH /assets/v1/assets/{assetId}`) instead of creating a new one. The asset ID in generated code stays put and Roblox keeps the old content as a previous version. Open Cloud only supports content updates for the `Model` asset type, so every other type still uploads a new asset with a new ID. Measured against the live API on 2026-09-04 with binary `.rbxm` files: two consecutive updates returned `200` with the asset ID unchanged and `revisionId` going 1 → 2 → 3. Roblox's asset guide still says content updates are limited to `.fbx`; the Assets API reference is the one that matches the API.
 - `updateAsset` is exported for library use, and `planSyncAction` takes the `assetType` as a fourth argument and can return `"update"`.
 
