@@ -7,7 +7,11 @@ id = 123456789      # Your Roblox User ID or Group ID
 
 # Each [[sync]] section defines an asset group to sync.
 # Assets are uploaded via the Roblox Open Cloud API.
-# The asset type is auto-detected from file extensions.
+# The asset type is auto-detected from file extensions: .rbxm / .rbxmx sync as
+# Model, so animation exports need assetType = "Animation" on their group.
+# Mesh formats (.fbx .glb .gltf .obj) are the exception: Roblox converts those
+# into a Model on upload and never gives the original file back, so `rocas fetch`
+# cannot restore them. They are skipped unless the group says assetType = "Model".
 # output generates a strict .luau file by default.
 
 [[sync]]
@@ -24,11 +28,13 @@ output = "src/shared/sounds"
 name = "meshes"
 path = "assets/meshes"
 output = "src/shared/meshes"
+assetType = "Model"   # required for .fbx / .glb / .gltf / .obj
 
 [[sync]]
 name = "animations"
 path = "assets/animations"
 output = "src/shared/animations"
+assetType = "Animation"   # .rbxm defaults to Model
 
 [[sync]]
 name = "videos"

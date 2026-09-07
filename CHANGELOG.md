@@ -5,12 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-09-07
 
 ### Added
 
+- `rocas fetch` — downloads the assets listed in the lock files, the reverse of `sync`. Files are written as `<assetId>.<ext>` into `.rocas-cache` (`--out` to change it, `--group` to limit the run), with the extension taken from the bytes Roblox returns rather than the original file name. A `<group>.fetch.json` records what was downloaded, so an entry whose lock `assetId` and `hash` are unchanged is not fetched again. Needs an API key with read access to Assets — the same permission image ID resolution already required.
+- `fetchAssetContent(assetId, options)` returns a single asset's body as a `Buffer`, with `options.version` to pin a specific asset version. It shares the asset delivery path that image ID resolution already used (Open Cloud first, legacy `assetdelivery` fallback, redirect following, gzip), and `fetchDecalImageId` is now the same fetch plus `extractImageIdFromAssetBody`.
+- `fetchAll` and `CONVERTED_EXT_TO_ASSET_TYPE` are exported for library use.
 - In-place asset updates: when only a file's content changed — the creator and `assetType` still match the lock — rocas updates the existing asset through the Open Cloud **Update Asset** endpoint (`PATCH /assets/v1/assets/{assetId}`) instead of creating a new one. The asset ID in generated code stays put and Roblox keeps the old content as a previous version. Open Cloud only supports content updates for the `Model` asset type, so every other type still uploads a new asset with a new ID. Measured against the live API on 2026-09-04 with binary `.rbxm` files: two consecutive updates returned `200` with the asset ID unchanged and `revisionId` going 1 → 2 → 3. Roblox's asset guide still says content updates are limited to `.fbx`; the Assets API reference is the one that matches the API.
 - `updateAsset` is exported for library use, and `planSyncAction` takes the `assetType` as a fourth argument and can return `"update"`.
+
+### Changed
+
+- **`.rbxm` and `.rbxmx` now sync as `Model` instead of `Animation`.** They are the only formats that survive a `rocas fetch` round trip, so they are the ones a project should be able to reach for without ceremony — and as `Model` they also get in-place updates, keeping their asset IDs across edits. Animation exports are `.rbxm` too and now need `assetType = "Animation"` on their group. **A group that has been syncing `.rbxm` without an explicit `assetType` will re-upload every one of them as a new `Model` with a new asset ID on the next sync**, because the resolved asset type is part of the config fingerprint; set `assetType = "Animation"` before syncing to keep the old behavior and the old IDs.
+- **Mesh formats are no longer auto-detected.** `.fbx`, `.glb`, `.gltf`, and `.obj` upload as a `Model` and Roblox never returns the original file, so `rocas fetch` cannot restore them — keeping a repository free of asset bodies is impossible while they sync implicitly. A group now has to set `assetType = "Model"` to upload them; without it the file is skipped with a line explaining why. Only `.rbxm` / `.rbxmx` round-trip. Existing groups that already set `assetType` are unaffected, and the Studio manifest still describes a `.fbx` as a `Model`.
 
 ### Fixed
 

@@ -6,9 +6,24 @@ const { RobloxFile } = require("rbxm-parser");
 const { parseConfig } = require("../src/config");
 const { generateLuau, generateDts, buildTree, renderLuauType } = require("../src/codegen");
 const { DEFAULT_CODEGEN_FORMAT, listCodegenFormats, registerCodegenFormat, resolveCodegenFormat } = require("../src/formats");
-const { EXT_TO_ASSET_TYPE, syncOne, configFingerprint, planSyncAction, fileHash, needsImageId } = require("../src/sync");
+const {
+	EXT_TO_ASSET_TYPE,
+	CONVERTED_EXT_TO_ASSET_TYPE,
+	syncOne,
+	configFingerprint,
+	planSyncAction,
+	fileHash,
+	needsImageId,
+} = require("../src/sync");
 const { contentTypeFor } = require("../src/upload");
-const { fetchDecalImageId, extractImageIdFromAssetBody, parseAssetLocation, assetDeliveryEndpoints } = require("../src/image-id");
+const {
+	fetchAssetContent,
+	fetchDecalImageId,
+	extractImageIdFromAssetBody,
+	parseAssetLocation,
+	assetDeliveryEndpoints,
+} = require("../src/image-id");
+const { fetchAll, detectContentExtension, planFetchAction, resolveFetchDir, DEFAULT_FETCH_DIR } = require("../src/fetch");
 const { buildAssetMap, lockPathForSync, resolveEntryAssetId } = require("../src/asset-map");
 const {
 	buildStudioPluginManifest,
@@ -205,11 +220,17 @@ console.log("Testing extension mapping...");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".png"], "Decal");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".wav"], "Audio");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".flac"], "Audio");
-assert.strictEqual(EXT_TO_ASSET_TYPE[".fbx"], "Model");
-assert.strictEqual(EXT_TO_ASSET_TYPE[".rbxm"], "Animation");
+assert.strictEqual(EXT_TO_ASSET_TYPE[".rbxm"], "Model");
+assert.strictEqual(EXT_TO_ASSET_TYPE[".rbxmx"], "Model");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".mp4"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".mov"], "Video");
 assert.strictEqual(EXT_TO_ASSET_TYPE[".xyz"], undefined);
+
+// アップロード時に変換される形式は自動判定から外れている (assetType の明示が要る)
+for (const ext of [".fbx", ".glb", ".gltf", ".obj"]) {
+	assert.strictEqual(EXT_TO_ASSET_TYPE[ext], undefined, `${ext} is not auto-detected`);
+	assert.strictEqual(CONVERTED_EXT_TO_ASSET_TYPE[ext], "Model", `${ext} is known as a converted format`);
+}
 console.log("  extension mapping OK");
 
 // --- Config fingerprint ---
@@ -328,7 +349,41 @@ assert.strictEqual(keyedEndpoints[0].headers["x-api-key"], "secret-key");
 assert.strictEqual(keyedEndpoints[1].url, "https://assetdelivery.roblox.com/v1/assetId/123");
 assert.deepStrictEqual(keyedEndpoints[1].headers, {}, "legacy endpoint is unauthenticated");
 assert.strictEqual(assetDeliveryEndpoints("123", null).length, 1, "no api key = legacy only");
+
+// 版を固定するときは .../assetId/{id}/version/{n}
+const versionedEndpoints = assetDeliveryEndpoints("123", "secret-key", 3);
+assert.strictEqual(versionedEndpoints[0].url, "https://apis.roblox.com/asset-delivery-api/v1/assetId/123/version/3");
+assert.strictEqual(versionedEndpoints[1].url, "https://assetdelivery.roblox.com/v1/assetId/123/version/3");
 console.log("  decal image id extraction OK");
+
+// --- Fetched content extension detection ---
+console.log("Testing fetched content extension detection...");
+
+// 元ファイルの拡張子ではなく、返ってきた中身で決める (.fbx を上げると .rbxm が返る)
+assert.strictEqual(detectContentExtension(Buffer.from("<roblox!\x89\xff\r\n\x1a\n", "latin1"), ".fbx"), ".rbxm");
+assert.strictEqual(detectContentExtension(Buffer.from('<roblox version="4">', "latin1"), ".fbx"), ".rbxmx");
+assert.strictEqual(detectContentExtension(Buffer.from("\x89PNG\r\n\x1a\n", "latin1"), ".jpg"), ".png");
+assert.strictEqual(detectContentExtension(Buffer.from("\xff\xd8\xff\xe0", "latin1"), ".png"), ".jpg");
+assert.strictEqual(detectContentExtension(Buffer.from("OggS\x00", "latin1"), ".mp3"), ".ogg");
+assert.strictEqual(detectContentExtension(Buffer.from("\x00\x00\x00\x18ftypmp42", "latin1"), ".mov"), ".mp4");
+// 判別できなければ lock のキーの拡張子、それも無ければ .bin
+assert.strictEqual(detectContentExtension(Buffer.from("mystery bytes"), ".wav"), ".wav");
+assert.strictEqual(detectContentExtension(Buffer.from("mystery bytes"), ""), ".bin");
+assert.strictEqual(detectContentExtension("not a buffer", ".png"), ".png");
+console.log("  fetched content extension detection OK");
+
+// --- Fetch action planning ---
+console.log("Testing fetch action planning...");
+
+const fetched = { assetId: "222", hash: "h1", file: "222.png" };
+assert.strictEqual(planFetchAction(fetched, "222", "h1", true), "reuse");
+assert.strictEqual(planFetchAction(undefined, "222", "h1", true), "fetch", "never fetched");
+assert.strictEqual(planFetchAction(fetched, "333", "h1", true), "fetch", "asset id changed");
+assert.strictEqual(planFetchAction(fetched, "222", "h2", true), "fetch", "source hash changed");
+assert.strictEqual(planFetchAction(fetched, "222", "h1", false), "fetch", "local file is gone");
+assert.strictEqual(resolveFetchDir("/repo", undefined), path.resolve("/repo", DEFAULT_FETCH_DIR));
+assert.strictEqual(resolveFetchDir("/repo", "somewhere"), path.resolve("/repo", "somewhere"));
+console.log("  fetch action planning OK");
 
 // --- Lock entry asset id resolution ---
 console.log("Testing lock entry asset id resolution...");
@@ -690,6 +745,56 @@ console.log("  image id propagation OK");
 	await assert.rejects(() => fetchDecalImageId("not-an-id"), /invalid decal asset id: not-an-id/);
 	console.log("  fetchDecalImageId OK");
 
+	// --- fetchAssetContent (offline; injected fetcher) ---
+	console.log("Testing fetchAssetContent...");
+
+	const modelBody = Buffer.from("<roblox!\x89\xff\r\n\x1a\n\x00INSTcube\x00", "latin1");
+
+	// Image ID 解決と同じ 2 ホップ。version を渡すと版指定の URL になる
+	const contentCalls = [];
+	const fetchedBody = await fetchAssetContent("rbxassetid://123", {
+		apiKey: "secret-key",
+		version: 3,
+		wait: noWait,
+		fetchAsset: async (url, headers) => {
+			contentCalls.push({ url, headers });
+			return url.includes("cdn.example") ? modelBody : cdnLocation;
+		},
+	});
+	assert(Buffer.isBuffer(fetchedBody), "returns a Buffer");
+	assert.strictEqual(fetchedBody.toString("latin1"), modelBody.toString("latin1"));
+	assert.strictEqual(contentCalls[0].url, "https://apis.roblox.com/asset-delivery-api/v1/assetId/123/version/3");
+	assert.strictEqual(contentCalls[0].headers["x-api-key"], "secret-key");
+	assert.strictEqual(contentCalls[1].url, "https://cdn.example/abc");
+
+	// Open Cloud が弾かれたら旧 assetdelivery へ落ちるのも同じ
+	const contentFallback = [];
+	const fallbackBody = await fetchAssetContent("123", {
+		apiKey: "secret-key",
+		wait: noWait,
+		fetchAsset: async (url) => {
+			contentFallback.push(url);
+			if (url.includes("apis.roblox.com")) throw new Error("GET failed (401)");
+			return url.includes("cdn.example") ? modelBody : cdnLocation;
+		},
+	});
+	assert.strictEqual(fallbackBody.toString("latin1"), modelBody.toString("latin1"));
+	assert.strictEqual(contentFallback.length, 3, "open cloud -> legacy -> cdn");
+
+	await assert.rejects(
+		() =>
+			fetchAssetContent("123", {
+				attempts: 1,
+				wait: noWait,
+				fetchAsset: async () => {
+					throw new Error("boom");
+				},
+			}),
+		/could not fetch the contents of asset 123: boom/,
+	);
+	await assert.rejects(() => fetchAssetContent("not-an-id"), /invalid asset id: not-an-id/);
+	console.log("  fetchAssetContent OK");
+
 	// --- syncOne image id backfill (offline) ---
 	console.log("Testing syncOne image id backfill...");
 
@@ -754,6 +859,98 @@ console.log("  image id propagation OK");
 	});
 	assert.strictEqual(audioCalls, 0, "non-image asset types are left alone");
 	console.log("  syncOne image id backfill OK");
+
+	// --- 変換される形式は assetType 明示が無いと skip される ---
+	console.log("Testing converted-format skip...");
+
+	const meshDir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-mesh-test-"));
+	const meshAssetDir = path.join(meshDir, "assets", "meshes");
+	fs.mkdirSync(meshAssetDir, { recursive: true });
+	fs.writeFileSync(path.join(meshAssetDir, "cube.fbx"), "fbx bytes");
+	// アップロードを試みれば Open Cloud に出て落ちるので、空のロックが skip の証拠になる
+	await syncOne({ name: "meshes", path: "assets/meshes" }, backfillCreator, "unused-api-key", meshDir);
+	assert.deepStrictEqual(
+		JSON.parse(fs.readFileSync(path.join(meshAssetDir, "meshes.lock.json"), "utf8")),
+		{},
+		".fbx is skipped without an explicit assetType",
+	);
+	console.log("  converted-format skip OK");
+
+	// --- fetchAll (offline; injected content fetcher) ---
+	console.log("Testing fetchAll...");
+
+	function makeFetchDir(lockEntries) {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rocas-fetch-test-"));
+		const assetDir = path.join(dir, "assets", "images");
+		fs.mkdirSync(assetDir, { recursive: true });
+		fs.writeFileSync(path.join(assetDir, "images.lock.json"), JSON.stringify(lockEntries, null, 2));
+		return { dir, assetDir };
+	}
+
+	const fetchConfig = { creator: backfillCreator, sync: [{ name: "images", path: "assets/images" }] };
+	const pngBody = Buffer.from("\x89PNG\r\n\x1a\nbutton", "latin1");
+
+	const cache = makeFetchDir({ "ui/button.png": { assetId: "111", imageId: "222", hash: "h1" } });
+	const fetchIds = [];
+	const recordingFetch = async (assetId) => {
+		fetchIds.push(assetId);
+		return pngBody;
+	};
+
+	const first = await fetchAll(fetchConfig, "secret-key", cache.dir, { fetchContent: recordingFetch });
+	// 画像は Decal ID ではなく中身の Image ID を落とす (Decal を落としても画像は出てこない)
+	assert.deepStrictEqual(fetchIds, ["222"], "prefers the image id");
+	assert.strictEqual(first.fetched, 1);
+	assert.strictEqual(first.reused, 0);
+	assert.strictEqual(first.failed, 0);
+	assert.strictEqual(path.relative(cache.dir, first.outDir), DEFAULT_FETCH_DIR, "defaults outside every synced path");
+	assert.deepStrictEqual(
+		fs.readFileSync(path.join(first.outDir, "222.png")),
+		pngBody,
+		"named by asset id + detected extension",
+	);
+
+	// 2 回目: lock が変わっていないので取り直さない
+	const second = await fetchAll(fetchConfig, "secret-key", cache.dir, { fetchContent: recordingFetch });
+	assert.deepStrictEqual(fetchIds, ["222"], "unchanged lock entries are not re-fetched");
+	assert.strictEqual(second.reused, 1);
+
+	// 落としたファイルが消えていれば取り直す
+	fs.unlinkSync(path.join(first.outDir, "222.png"));
+	const third = await fetchAll(fetchConfig, "secret-key", cache.dir, { fetchContent: async () => pngBody });
+	assert.strictEqual(third.fetched, 1, "a missing local file is fetched again");
+
+	// 1 つ失敗しても残りは続き、失敗数が返る
+	const failingCache = makeFetchDir({ "a.png": { assetId: "1", hash: "h" }, "b.png": { assetId: "2", hash: "h" } });
+	const failed = await fetchAll(fetchConfig, "secret-key", failingCache.dir, {
+		fetchContent: async (assetId) => {
+			if (assetId === "1") throw new Error("GET failed (403)");
+			return pngBody;
+		},
+	});
+	assert.strictEqual(failed.failed, 1);
+	assert.strictEqual(failed.fetched, 1);
+
+	// 知らないグループ名は黙って素通しさせない
+	await assert.rejects(
+		() => fetchAll(fetchConfig, "secret-key", cache.dir, { groups: ["nope"] }),
+		/Unknown sync group\(s\): nope/,
+	);
+
+	// 出力先が sync の path の中だと警告する (次の sync が再アップロードしてしまうため)
+	const warnings = [];
+	const originalWarn = console.warn;
+	console.warn = (message) => warnings.push(String(message));
+	try {
+		await fetchAll(fetchConfig, "secret-key", cache.dir, { out: "assets/images", fetchContent: async () => pngBody });
+	} finally {
+		console.warn = originalWarn;
+	}
+	assert(
+		warnings.some((message) => message.includes("inside the synced path of images")),
+		"warns when restoring into a synced path",
+	);
+	console.log("  fetchAll OK");
 
 	console.log("\nAll tests passed!");
 })().catch((error) => {

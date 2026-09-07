@@ -42,6 +42,7 @@ imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
 - **ハッシュベースの変更検知** — 実際に変わったものだけをアップロードし、ロックファイルで管理
 - **設定変更を検知して再同期** — `rocas.toml` の creator や `assetType` が変わると、ファイル内容が同一でも再アップロード
 - **Model の ID は据え置き** — 同期済みの `Model` を編集しても、新しい ID を振らずに既存アセットを更新
+- **取り戻せる** — `rocas fetch` でロックファイルが指すアセットをダウンロード。リポジトリにはアセット本体ではなく ID だけを置ける
 - **ディレクトリの再帰スキャン** — ネストしたフォルダはネストした生成オブジェクトに
 - **Luau ネイティブがデフォルト** — `--!strict` の型注釈付き `.luau` を生成
 - **roblox-ts 互換** — オプトインで Asphalt 風の `.luau` + `.d.ts` ペアを出力
@@ -54,7 +55,7 @@ imageLabel.Image = images.ui.button --> "rbxassetid://12345678"
 | | |
 |---|---|
 | **Node.js** | 18 以上 |
-| **Roblox Open Cloud API キー** | `sync` と `watch` のみ必要。[Creator Dashboard](https://create.roblox.com/dashboard/credentials) で、対象ユーザーまたはグループの Assets 読み書き権限を付けて作成してください。**読み取り** 権限は [Image ID](#image-id) の解決に使われます。 |
+| **Roblox Open Cloud API キー** | `sync`・`watch`・`fetch` に必要。[Creator Dashboard](https://create.roblox.com/dashboard/credentials) で、対象ユーザーまたはグループの Assets 読み書き権限を付けて作成してください。**読み取り** 権限は [Image ID](#image-id) の解決と [`rocas fetch`](#アセットを取り戻す) のダウンロードに使われます。 |
 
 > [!NOTE]
 > `rocas plugin` と `rocas manifest --local` は完全オフラインで動作します — API キー不要。
@@ -122,6 +123,7 @@ rocas watch
 |---------|-------------|
 | `rocas sync` | 変更されたアセットをアップロードし、バインディングを再生成 |
 | `rocas watch` | アセットディレクトリと `rocas.toml` を監視し、変更時に同期 |
+| `rocas fetch` | ロックファイルに載っているアセットをダウンロード |
 | `rocas plugin` | 静的な Roblox Studio プラグインを生成 |
 | `rocas manifest` | ロックファイルから `ReplicatedStorage` マニフェスト ModuleScript を生成 |
 | `rocas help` | ヘルプを表示 |
@@ -131,6 +133,8 @@ rocas watch
 | フラグ | 対象 | デフォルト | 説明 |
 |------|-----------|---------|-------------|
 | `--debounce <ms>` | `watch` | `10000` | 同期実行までのデバウンス間隔 |
+| `--group <name>` | `fetch` | 全グループ | この `[[sync]]` グループだけを取得。複数指定可 |
+| `--out`, `-o <dir>` | `fetch` | `.rocas-cache` | ダウンロード先 |
 | `--output`, `-o <path>` | `plugin` | Studio のローカル Plugins フォルダ | プラグインの出力先 |
 | `--output`, `-o <path>` | `manifest` | `src/shared/RocasManifest.luau` | マニフェストモジュールの出力先 |
 | `--local` | `manifest` | — | ロックファイルではなくローカルファイルから生成。アップロードも API キーも不要 |
@@ -147,11 +151,33 @@ rocas watch
 |------|------------|--------------------|
 | 画像 | `.png` `.jpg` `.jpeg` `.bmp` `.tga` | `Decal` |
 | 音声 | `.mp3` `.ogg` `.wav` `.flac` | `Audio` |
-| メッシュ | `.fbx` `.glb` `.gltf` `.obj` | `Model` |
-| アニメーション | `.rbxm` `.rbxmx` | `Animation` |
+| モデル | `.rbxm` `.rbxmx` | `Model` |
+| メッシュ | `.fbx` `.glb` `.gltf` `.obj` | `Model` — `assetType` の明示が必要 |
 | 動画 | `.mp4` `.mov` | `Video` |
 
 アセットタイプはファイル拡張子から自動判定され、グループごとに `assetType` で上書きできます。
+
+> [!IMPORTANT]
+> メッシュ形式は自動判定の対象では **ありません**。`.fbx` / `.glb` / `.gltf` / `.obj` はアップロード時に Roblox が `Model` へ変換し、元のファイルは返ってきません。つまり [`rocas fetch`](#アセットを取り戻す) では戻せないので、グループで名指ししない限り理由を添えて skip します。
+>
+> ```toml
+> [[sync]]
+> name = "meshes"
+> path = "assets/meshes"
+> assetType = "Model"   # これが無いと .fbx は skip される
+> ```
+
+アニメーションも `.rbxm` で書き出されますが、`.rbxm` は `Model` として同期されます。アニメーションのグループはその旨を明示してください。
+
+```toml
+[[sync]]
+name = "animations"
+path = "assets/animations"
+assetType = "Animation"
+```
+
+> [!WARNING]
+> `.rbxm` / `.rbxmx` の既定は以前は `Animation` でした。`assetType` を明示せずにこれらを同期してきたグループは、次の `rocas sync` で assetType の変更が設定変更として扱われ、**すべて新しい `Model` として再アップロードされて assetId が変わります**。以前の挙動と ID を保つには、同期する前にグループへ `assetType = "Animation"` を指定してください。
 
 ### Image ID
 
@@ -227,7 +253,7 @@ rocas は各同期ディレクトリの中に `<name>.lock.json` を保持しま
 対象は `Model` だけです。Open Cloud は `Audio`・`Decal`・`Mesh`・`Video`・`Animation` の内容更新に対応していないので、これらを編集した場合は従来どおり新しい ID で新規アップロードになります。
 
 > [!NOTE]
-> `.rbxm` と `.rbxmx` の既定の assetType は `Animation` です。モデルとして同期してその場での更新を効かせるには、グループに `assetType = "Model"` を指定してください。バイナリの `.rbxm` はその場で更新できます（2026-09-04 に実 API で確認）。Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は今も内容更新を `.fbx` に限ると書いていますが、実際には通ります。
+> `.rbxm` と `.rbxmx` の既定の assetType は `Model` なので、編集すると既存アセットがその場で更新されます。バイナリの `.rbxm` でも更新できます（2026-09-04 に実 API で確認）。Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は今も内容更新を `.fbx` に限ると書いていますが、実際には通ります。アニメーションを置いているグループには `assetType = "Animation"` が必要で、そちらは編集のたびに新規アップロードになります。
 
 `output`・`format`・`stripExtensions` の変更はコード生成にのみ影響し、再アップロードは発生しません。`rocas watch` は `rocas.toml` 自体も監視するので、設定を保存すると再読み込みして同期が走ります。
 
@@ -241,6 +267,35 @@ rocas は各同期ディレクトリの中に `<name>.lock.json` を保持しま
 強制的に全アセットを再アップロードしたい場合 — たとえばフィンガープリント導入前のロックのまま creator を変更していた場合 — は、該当する `*.lock.json` を削除して `rocas sync` を実行してください。
 
 </details>
+
+## アセットを取り戻す
+
+`rocas fetch` は `sync` の逆向きです。ロックファイルを読み、そこに載っているアセットをダウンロードします。
+
+```bash
+rocas fetch                     # 全グループ
+rocas fetch --group models      # グループ指定
+rocas fetch --out .rocas-cache  # 出力先の指定
+```
+
+ファイル名は `<assetId>.<ext>` で、何を落としたかは同じディレクトリの `<group>.fetch.json` に記録されます。拡張子は元のファイル名ではなく **返ってきた中身** から決めます。両者は一致するとは限らないためです — 画像は画像のまま返りますが、`.fbx` は Roblox が組み立てた `.rbxm` として返ります。ロックの `assetId` と `hash` が変わっておらず、ファイルも残っていれば取り直しません。
+
+これによって、アセット本体をリポジトリから外せます。ロックファイルだけをコミットして実体を gitignore し、clone 後に `rocas fetch` を一発叩く、という形です。ただし制約が 2 つあります。
+
+> [!WARNING]
+> **sync の `path` の中へ落とさないこと。** ダウンロードしたファイルは元ファイルとバイト一致しないため、次の `rocas sync` が「変わった」と判定します。`Model` なら無駄なアップロードが走るだけですが、`Decal` / `Audio` / `Video` は **新しい assetId** が振られ、既存の参照が全部壊れます。既定の出力先がどの `path` の外にもあるのはこのためで、`--out` が `path` の中を指していると警告します。
+
+> [!NOTE]
+> **メッシュの元ファイルは戻りません。** `.fbx`（`.glb` / `.gltf` / `.obj` も同じ）を上げると出来上がるのは `Model` で、元のファイルは残りません。往復できるのは `.rbxm` / `.rbxmx` だけなので、実体をリポジトリから外したいなら、モデルの書き出しを `.rbxm` に寄せてグループに `assetType = "Model"` を指定してください。
+
+単体のアセットは [`fetchAssetContent`](docs/api.ja.md#fetchassetcontentassetid-options) が本体をそのまま返します。
+
+```javascript
+const { fetchAssetContent } = require("rocas");
+
+const rbxm = await fetchAssetContent(assetId, { apiKey });
+const older = await fetchAssetContent(assetId, { apiKey, version: 3 });
+```
 
 ## Roblox Studio プラグイン
 

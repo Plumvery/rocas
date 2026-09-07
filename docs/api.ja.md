@@ -10,9 +10,10 @@ const rocas = require("rocas");
 
 - [共通のデータ形状](#共通のデータ形状) — [`Config`](#config)、[`Lock`](#lock)、[`Manifest`](#manifest)
 - [設定](#設定) — [`loadEnv`](#loadenvcwd)、[`loadConfig`](#loadconfigcwd)
-- [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd-options)、[`syncOne`](#synconesyncconfig-creator-apikey-cwd-options)、[`needsImageId`](#needsimageidentry-assettype)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)
+- [同期](#同期) — [`syncAll`](#syncallconfig-apikey-cwd-options)、[`syncOne`](#synconesyncconfig-creator-apikey-cwd-options)、[`needsImageId`](#needsimageidentry-assettype)、[`EXT_TO_ASSET_TYPE`](#ext_to_asset_type)、[`CONVERTED_EXT_TO_ASSET_TYPE`](#converted_ext_to_asset_type)
 - [監視](#監視) — [`watchAll`](#watchallconfig-apikey-options)
 - [アップロード](#アップロード) — [`uploadAsset`](#uploadassetfilepath-assettype-apikey-creator)、[`updateAsset`](#updateassetassetid-filepath-assettype-apikey-creator)
+- [取得](#取得) — [`fetchAll`](#fetchallconfig-apikey-cwd-options)、[`fetchAssetContent`](#fetchassetcontentassetid-options)
 - [Image ID](#image-id) — [`fetchDecalImageId`](#fetchdecalimageiddecalid-options)、[`extractImageIdFromAssetBody`](#extractimageidfromassetbodybody)
 - [コード生成](#コード生成) — [`generateLuau`](#generateluaulock-varname-options)、[`generateDts`](#generatedtslock-varname-options)
 - [コード生成フォーマット](#コード生成フォーマット) — [`registerCodegenFormat`](#registercodegenformatformat)、[`listCodegenFormats`](#listcodegenformats)、[`resolveCodegenFormat`](#resolvecodegenformatformatname)、[`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
@@ -111,7 +112,7 @@ const rocas = require("rocas");
 4. 更新されたロックファイルを書き込み。
 5. `sync.output` が設定されていればグループのフォーマットでコード生成し、内容が変わったファイルのみ書き込み。
 
-ディレクトリが存在しないグループはログを出してスキップします。未対応の拡張子のファイル（かつ `assetType` 上書きなし）もスキップされます。
+ディレクトリが存在しないグループはログを出してスキップします。未対応の拡張子のファイル（かつ `assetType` 上書きなし）もスキップされます。[変換される形式](#converted_ext_to_asset_type)（`.fbx` など）も同様で、これらはグループで `assetType` を明示しない限り通りません。
 
 Image ID の解決が失敗しても同期は止まりません。警告を出して Decal ID を残し、次回の実行で再試行します。3 回連続で失敗するとそのグループの残りではスキップします。
 
@@ -127,7 +128,11 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 
 ### `EXT_TO_ASSET_TYPE`
 
-小文字の拡張子から Roblox アセットタイプへのマッピングオブジェクト。例: `{ ".png": "Decal", ".mp3": "Audio", ".fbx": "Model", ".rbxm": "Animation", ".mp4": "Video", … }`。グループに `assetType` の上書きが無い場合の自動判定に使われます。
+小文字の拡張子から Roblox アセットタイプへのマッピングオブジェクト。例: `{ ".png": "Decal", ".mp3": "Audio", ".rbxm": "Model", ".mp4": "Video", … }`。グループに `assetType` の上書きが無い場合の自動判定に使われます。`.rbxm` / `.rbxmx` は `Model` です（取得で往復できる唯一の形式のため）。アニメーションを置くグループには `assetType = "Animation"` が必要です。
+
+### `CONVERTED_EXT_TO_ASSET_TYPE`
+
+`{ ".fbx": "Model", ".glb": "Model", ".gltf": "Model", ".obj": "Model" }` — アップロード時に Roblox が変換してしまう形式。上げると出来上がるのは `Model` で、元のファイルは取り戻せないため [`fetchAll`](#fetchallconfig-apikey-cwd-options) では復元できません。これらを `EXT_TO_ASSET_TYPE` に **入れていない** のは意図的で、同期するにはグループで `assetType = "Model"` を指定する必要があります。「このファイルは何か」を説明する側（Studio マニフェストが `.fbx` を `Model` と呼ぶなど）では引き続きこの表を使います。
 
 ## 監視
 
@@ -166,6 +171,43 @@ Image ID の解決が失敗しても同期は止まりません。警告を出�
 
 > [!NOTE]
 > Roblox の[アセットガイド](https://create.roblox.com/docs/cloud/guides/usage-assets)は内容更新を `.fbx` に限ると書いていますが、この記述は誤りです（少なくとも 2026-09-04 時点では古い情報です）。実際の挙動と一致するのは [Assets API リファレンス](https://create.roblox.com/docs/cloud/reference/AssetsApi) のほうで、Model 全般で内容を更新できます。
+
+## 取得
+
+### `fetchAll(config, apiKey, cwd?, options?)`
+
+`async`。[`syncAll`](#syncallconfig-apikey-cwd-options) の逆向き。各グループのロックファイルを読み、載っているアセットをダウンロードします。
+
+各エントリは [`resolveEntryAssetId`](#resolveentryassetidentry) で解決するため、画像は包んでいる Decal ではなく `imageId` で取得されます。ファイル名は `<assetId>.<ext>` で、拡張子はロックのキーではなく **返ってきた中身** から決めます（`.fbx` を上げたものは Roblox が組み立てた `.rbxm` として返るため）。同じディレクトリの `<group>.fetch.json` にロックのキーごとの `{ assetId, hash, file }` を記録し、`assetId` と `hash` が一致していてファイルも残っているエントリは取り直しません。
+
+- `options.out` — 出力先ディレクトリ。`cwd` からの相対で解決。既定は `.rocas-cache`。
+- `options.groups` — 対象を絞る `[[sync]]` 名の配列。知らない名前があれば throw します。
+- `options.fetchContent` — `(assetId, apiKey) => Promise<Buffer>`。[`fetchAssetContent`](#fetchassetcontentassetid-options) の差し替え。主にテストやオフライン実行用。
+- 戻り値は `{ outDir, fetched, reused, failed }`。
+
+1 件失敗しても実行は止まりません。警告を出して `failed` に数えます。3 回連続で失敗するとそのグループの残りはスキップします。
+
+> [!WARNING]
+> 出力先は必ずどの `sync.path` の **外** にしてください。ダウンロードしたファイルは元ファイルとバイト一致しないため、次の同期が「変わった」と判定します。`Model` ならその場で更新されるだけですが、`Decal` / `Audio` / `Video` は新規アップロードになり **assetId が変わります**。`options.out` が `path` の中に落ちる場合は `fetchAll` が警告し、既定の出力先が中に入ることはありません。
+
+### `fetchAssetContent(assetId, options?)`
+
+`async`。アセット 1 件をダウンロードして本体を `Buffer` で返します。素の ID でも `rbxassetid://…` 文字列でも受け付けます。
+
+返ってくるのはアップロードしたファイルではなく **Roblox が保持している形** です。`Model` は MeshPart 化済みの `.rbxm`、画像は画像のバイト列（したがって渡すのは Decal ID ではなく Image ID）。経路は [`fetchDecalImageId`](#fetchdecalimageiddecalid-options) と同じ 2 ホップで、Open Cloud → 旧 assetdelivery のフォールバックと gzip 展開もそのまま共有しています。
+
+- `options.apiKey` — Open Cloud API キー。Assets の **読み取り** 権限が必要。
+- `options.version` — 版の固定（`.../assetId/{id}/version/{n}`）。
+- `options.attempts`（既定 `3`）/ `options.retryDelayMs`（既定 `2000`）— アップロード直後は配信が間に合わないことがあるため。
+- `options.fetchAsset` — `(url, headers) => Promise<Buffer|string>`。内蔵フェッチャの差し替え。
+- すべてのエンドポイントが失敗した場合は throw します。
+
+```javascript
+const { fetchAssetContent } = require("rocas");
+
+const rbxm = await fetchAssetContent("123456789", { apiKey });
+const older = await fetchAssetContent("123456789", { apiKey, version: 3 });
+```
 
 ## Image ID
 

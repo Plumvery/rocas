@@ -2,7 +2,7 @@ const https = require("https");
 const zlib = require("zlib");
 
 /**
- * Decal → Image ID 解決。
+ * アセット本体の取得と、Decal → Image ID 解決。
  *
  * Open Cloud に .png を上げると返ってくるのは **Decal** のアセット ID で、
  * 中身の Image アセット ID とは別物。`Decal.Texture` は Decal ID でも動くが、
@@ -16,6 +16,9 @@ const zlib = require("zlib");
  *
  * どちらも「CDN の場所を JSON で返す → 本体を取り直す」の 2 ホップ。
  * CDN の本体は gzip で返ってくるため展開が必要。
+ *
+ * この経路は Image ID 解決に限った話ではないので、本体をそのまま返す
+ * `fetchAssetContent` も同じ土台の上に載せてある。
  */
 
 const OPEN_CLOUD_ASSET_DELIVERY = "https://apis.roblox.com/asset-delivery-api/v1/assetId";
@@ -136,49 +139,63 @@ function parseAssetLocation(body) {
 
 /**
  * 試す順にアセット配信のエンドポイントを並べる。
+ * @param {string} assetId
+ * @param {string | null} apiKey
+ * @param {string | number | null} [version] - 版を固定したいとき。`.../assetId/{id}/version/{n}`
  */
-function assetDeliveryEndpoints(decalId, apiKey) {
+function assetDeliveryEndpoints(assetId, apiKey, version = null) {
+	const suffix = version == null || version === "" ? "" : `/version/${version}`;
 	const endpoints = [];
 	if (apiKey) {
-		endpoints.push({ url: `${OPEN_CLOUD_ASSET_DELIVERY}/${decalId}`, headers: { "x-api-key": apiKey } });
+		endpoints.push({ url: `${OPEN_CLOUD_ASSET_DELIVERY}/${assetId}${suffix}`, headers: { "x-api-key": apiKey } });
 	}
-	endpoints.push({ url: `${LEGACY_ASSET_DELIVERY}/${decalId}`, headers: {} });
+	endpoints.push({ url: `${LEGACY_ASSET_DELIVERY}/${assetId}${suffix}`, headers: {} });
 	return endpoints;
 }
 
 /**
- * Decal のアセット ID から、中身の Image アセット ID を取得する。
- *
- * アップロード直後は本体がまだ配信されず失敗しうるので数回リトライする。
- * @param {string | number} decalId - Decal のアセット ID ("rbxassetid://" 前置きも可)
- * @param {{ apiKey?: string, attempts?: number, retryDelayMs?: number, fetchAsset?: (url: string, headers: object) => Promise<Buffer|string>, wait?: (ms: number) => Promise<void> }} [options]
- * @returns {Promise<string>} Image アセット ID (数値文字列)
- * @throws 解決できなかった場合
+ * "rbxassetid://" 前置きを外して数値文字列にする。
+ * @param {string | number} assetId
+ * @param {string} kind - エラー文言に出す呼び名 ("asset" / "decal asset")
  */
-async function fetchDecalImageId(decalId, options = {}) {
+function normalizeAssetId(assetId, kind) {
+	const id = String(assetId).replace(/^rbxassetid:\/\//, "").trim();
+	if (!/^\d+$/.test(id)) {
+		throw new Error(`invalid ${kind} id: ${assetId}`);
+	}
+	return id;
+}
+
+/**
+ * アセット配信を「エンドポイントのフォールバック × リトライ」で回す共通部分。
+ *
+ * アップロード直後は本体がまだ配信されず失敗しうるので数回リトライする。`accept` が
+ * 非 null を返した時点で成功。全部外したら最後のエラーを添えて null を返す。
+ * @param {string} id - 正規化済みのアセット ID
+ * @param {object} options
+ * @param {(body: Buffer | string) => any} accept - 本体を受け取り、欲しい値か null を返す
+ * @returns {Promise<{ value: any, lastError: Error | null }>}
+ */
+async function deliverAsset(id, options, accept) {
 	const {
 		apiKey = null,
+		version = null,
 		attempts = DEFAULT_ATTEMPTS,
 		retryDelayMs = DEFAULT_RETRY_DELAY_MS,
 		fetchAsset = fetchAssetBody,
 		wait = sleep,
 	} = options;
 
-	const id = String(decalId).replace(/^rbxassetid:\/\//, "").trim();
-	if (!/^\d+$/.test(id)) {
-		throw new Error(`invalid decal asset id: ${decalId}`);
-	}
-
 	let lastError = null;
 
 	for (let attempt = 1; attempt <= attempts; attempt++) {
-		for (const { url, headers } of assetDeliveryEndpoints(id, apiKey)) {
+		for (const { url, headers } of assetDeliveryEndpoints(id, apiKey, version)) {
 			try {
 				const location = parseAssetLocation(await fetchAsset(url, headers));
 				if (!location) continue;
 
-				const imageId = extractImageIdFromAssetBody(await fetchAsset(location, {}));
-				if (imageId) return imageId;
+				const value = accept(await fetchAsset(location, {}));
+				if (value != null) return { value, lastError };
 			} catch (error) {
 				lastError = error;
 			}
@@ -188,11 +205,49 @@ async function fetchDecalImageId(decalId, options = {}) {
 		}
 	}
 
+	return { value: null, lastError };
+}
+
+/**
+ * アセット ID から本体を取得する。
+ *
+ * 返ってくるのは「上げたファイル」ではなく「Roblox が保持している形」。Model は
+ * MeshPart 化済みの .rbxm、画像は元の画像バイト列になる (画像の場合ここへ渡すのは
+ * Decal ID ではなく中身の Image ID)。
+ * @param {string | number} assetId - アセット ID ("rbxassetid://" 前置きも可)
+ * @param {{ apiKey?: string, version?: string | number, attempts?: number, retryDelayMs?: number, fetchAsset?: (url: string, headers: object) => Promise<Buffer|string>, wait?: (ms: number) => Promise<void> }} [options]
+ * @returns {Promise<Buffer>} アセット本体
+ * @throws 取得できなかった場合
+ */
+async function fetchAssetContent(assetId, options = {}) {
+	const id = normalizeAssetId(assetId, "asset");
+	const { value, lastError } = await deliverAsset(id, options, (body) =>
+		Buffer.isBuffer(body) ? body : Buffer.from(String(body), "latin1"),
+	);
+	if (value) return value;
+
+	const detail = lastError ? `: ${lastError.message}` : " (the asset delivery response had no location)";
+	throw new Error(`could not fetch the contents of asset ${id}${detail}`);
+}
+
+/**
+ * Decal のアセット ID から、中身の Image アセット ID を取得する。
+ * @param {string | number} decalId - Decal のアセット ID ("rbxassetid://" 前置きも可)
+ * @param {{ apiKey?: string, attempts?: number, retryDelayMs?: number, fetchAsset?: (url: string, headers: object) => Promise<Buffer|string>, wait?: (ms: number) => Promise<void> }} [options]
+ * @returns {Promise<string>} Image アセット ID (数値文字列)
+ * @throws 解決できなかった場合
+ */
+async function fetchDecalImageId(decalId, options = {}) {
+	const id = normalizeAssetId(decalId, "decal asset");
+	const { value, lastError } = await deliverAsset(id, options, extractImageIdFromAssetBody);
+	if (value) return value;
+
 	const detail = lastError ? `: ${lastError.message}` : " (no image id in the asset body)";
 	throw new Error(`could not resolve the image id of decal ${id}${detail}`);
 }
 
 module.exports = {
+	fetchAssetContent,
 	fetchDecalImageId,
 	extractImageIdFromAssetBody,
 	parseAssetLocation,

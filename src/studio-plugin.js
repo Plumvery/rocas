@@ -1,7 +1,7 @@
 const { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } = require("fs");
 const path = require("path");
 const { RobloxFile, Script } = require("rbxm-parser");
-const { EXT_TO_ASSET_TYPE, walkDir } = require("./sync");
+const { EXT_TO_ASSET_TYPE, CONVERTED_EXT_TO_ASSET_TYPE, walkDir } = require("./sync");
 const { assetIdString, normalizeAssetPath, resolveEntryAssetId } = require("./asset-map");
 
 const DEFAULT_PLUGIN_FILE_NAME = "rocas-studio-plugin.rbxm";
@@ -12,7 +12,10 @@ function inferAssetType(relPath, syncConfig) {
 		return syncConfig.assetType;
 	}
 
-	return EXT_TO_ASSET_TYPE[path.extname(relPath).toLowerCase()] || "Unknown";
+	// 変換される形式 (.fbx など) は sync の自動判定からは外してあるが、
+	// 「このファイルは何か」を示すだけのここでは従来どおり Model と呼ぶ。
+	const ext = path.extname(relPath).toLowerCase();
+	return EXT_TO_ASSET_TYPE[ext] || CONVERTED_EXT_TO_ASSET_TYPE[ext] || "Unknown";
 }
 
 function fileNameFromAssetPath(assetPath) {
