@@ -30,6 +30,12 @@ npm test        # node test/test.js を実行
 
 CI はネイティブビルド込みで `npm ci` を回します。`lz4` のビルドは省略できません — 公開されているパッケージにはビルド済みの `xxhash.node` が同梱されていますが、どの runner でも読めず（Linux では `invalid ELF header`、Windows では `not a valid Win32 application`）、`rbxm-parser` はこれを無条件に require するためです。GitHub の runner にはツールチェーンが揃っています。手元で引っかかるのは macOS だけで、その場合は上の `SDKROOT` の対処を使ってください。
 
+そのビルドが走るのは、`package.json` の `allowScripts` に `lz4` を入れてあるからです。npm 12 は依存の install スクリプトをプロジェクトが承認しない限りブロックしますが、ブロックは警告であってエラーではありません — インストール自体は成功し、`lz4` を require した時点で `ERR_DLOPEN_FAILED` として初めて表面化します。依存の更新で `lz4` のバージョンが変わったら、承認し直してください:
+
+```bash
+npm install-scripts approve lz4
+```
+
 ## プロジェクト構成
 
 ```text
