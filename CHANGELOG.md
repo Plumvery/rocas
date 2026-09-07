@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-07
+
+### Added
+
+- First npm release, published as `@plumvery/rocas`. The unscoped `rocas` was rejected by the registry as too similar to existing packages (`recast`, `socks`); the CLI command is still `rocas`.
+
+### Changed
+
+- The npm package name is `@plumvery/rocas`, not `rocas`. Nothing about the code changed between 0.3.0 and 0.3.1; 0.3.0 was tagged before the rename and never reached the registry.
+
 ## [0.3.0] - 2026-09-07
 
 ### Added

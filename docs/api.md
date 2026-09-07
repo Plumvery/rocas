@@ -2,10 +2,10 @@
 
 **English** | [日本語](api.ja.md)
 
-Everything exported by `require("rocas")`. The CLI ([`bin/rocas.js`](../bin/rocas.js)) is a thin wrapper over these functions, so anything the CLI does can also be done programmatically.
+Everything exported by `require("@plumvery/rocas")`. The CLI ([`bin/rocas.js`](../bin/rocas.js)) is a thin wrapper over these functions, so anything the CLI does can also be done programmatically.
 
 ```javascript
-const rocas = require("rocas");
+const rocas = require("@plumvery/rocas");
 ```
 
 - [Shared shapes](#shared-shapes) — [`Config`](#config), [`Lock`](#lock), [`Manifest`](#manifest)
@@ -203,7 +203,7 @@ What comes back is what Roblox stores, not what was uploaded: a `Model` is a Mes
 - Throws when every endpoint fails.
 
 ```javascript
-const { fetchAssetContent } = require("rocas");
+const { fetchAssetContent } = require("@plumvery/rocas");
 
 const rbxm = await fetchAssetContent("123456789", { apiKey });
 const older = await fetchAssetContent("123456789", { apiKey, version: 3 });

@@ -1,6 +1,6 @@
 {
-  "name": "rocas",
-  "version": "0.3.0",
+  "name": "@plumvery/rocas",
+  "version": "0.3.1",
   "description": "Roblox Open Cloud Asset Sync",
   "main": "src/index.js",
   "bin": {
@@ -29,6 +29,9 @@
     "roblox-ts"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },

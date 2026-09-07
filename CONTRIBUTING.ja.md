@@ -36,7 +36,7 @@ CI はネイティブビルド込みで `npm ci` を回します。`lz4` のビ�
 bin/
   rocas.js          CLI エントリポイント（引数解析のみ — ロジックは src/ 側）
 src/
-  index.js          ライブラリの公開サーフェス（require("rocas") がエクスポートするすべて）
+  index.js          ライブラリの公開サーフェス（require("@plumvery/rocas") がエクスポートするすべて）
   config.js         .env + rocas.toml の読み込み
   sync.js           同期のオーケストレーション、拡張子 → assetType マッピング
   upload.js         Open Cloud Assets API クライアント
@@ -73,3 +73,17 @@ docs/
 4. **何を**変えたか、**なぜ**変えたかを書いた PR を作成。関連 Issue があればリンク。
 
 大きめの変更は、時間を使う前にアプローチを議論できるよう、先に Issue を立ててもらえると助かります。
+
+## リリース手順
+
+1. `CHANGELOG.md` の `[Unreleased]` 見出しを、新しいバージョンと日付に書き換える。
+2. `package.json` と `package-lock.json` の `version` を上げる。1.0 前なので、破壊的変更は minor を上げる。
+3. `main` へマージし、`v<version>` のタグで GitHub Release を publish する。
+4. [`publish.yml`](.github/workflows/publish.yml) がそれを拾って `npm publish` を実行する。タグと `package.json` が食い違っていれば公開を拒否し、テストは `prepublishOnly` が先に走らせる。
+
+公開は npm の **Trusted Publishing**（OIDC）経由なので、リポジトリの secrets にトークンを置きません。一度だけ必要な準備が 2 つあります。
+
+- Trusted Publisher は、すでに npm 上に存在するパッケージにしか紐付けられません。したがって**最初の 1 回だけは手動で公開**します（`npm login` してから `npm publish`）。
+- npmjs.com のパッケージ設定 **Settings → Trusted Publisher** で、このリポジトリと `publish.yml` を登録します。
+
+npm は公開に二要素認証を要求します。アカウントで 2FA を有効にするか、**bypass 2FA** を有効にした granular access token を使ってください。後者の場合は workflow から `id-token` を外し、代わりにトークンを `NODE_AUTH_TOKEN` として渡します。

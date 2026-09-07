@@ -36,7 +36,7 @@ CI runs a full `npm ci`, native build included. The `lz4` build is not optional:
 bin/
   rocas.js          CLI entry point (argument parsing only — logic lives in src/)
 src/
-  index.js          Public library surface (everything require("rocas") exports)
+  index.js          Public library surface (everything require("@plumvery/rocas") exports)
   config.js         .env + rocas.toml loading
   sync.js           Sync orchestration, extension → assetType mapping
   upload.js         Open Cloud Assets API client
@@ -73,3 +73,17 @@ docs/
 4. Open a PR describing **what** changed and **why**. Link related issues.
 
 For larger changes, please open an issue first so the approach can be discussed before you invest the time.
+
+## Releasing
+
+1. Update `CHANGELOG.md`: rename the `[Unreleased]` heading to the new version and date.
+2. Bump `version` in `package.json` and `package-lock.json`. While the package is pre-1.0, breaking changes bump the minor.
+3. Merge to `main`, then publish a GitHub Release tagged `v<version>`.
+4. [`publish.yml`](.github/workflows/publish.yml) picks it up and runs `npm publish`. It refuses to publish when the tag and `package.json` disagree, and `prepublishOnly` runs the test suite first.
+
+The workflow publishes through npm **Trusted Publishing** (OIDC), so no token is stored in the repository secrets. Two one-time prerequisites:
+
+- A trusted publisher can only be attached to a package that already exists on npm, so the very first publish is manual — `npm login`, then `npm publish`.
+- On npmjs.com, under the package's **Settings → Trusted Publisher**, register this repository and `publish.yml`.
+
+npm requires two-factor authentication to publish. Enable 2FA on the account, or use a granular access token with **bypass 2FA** — in that case drop `id-token` from the workflow and pass the token as `NODE_AUTH_TOKEN` instead.
