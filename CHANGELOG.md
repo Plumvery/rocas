@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-09-07
+
+### Fixed
+
+- **rocas runs again on npm 12.** `rbxm-parser` is now required inside `generateStudioPluginRbxm` instead of at the top of `src/studio-plugin.js`, so `sync`, `fetch`, `watch`, `manifest`, and `help` no longer load a native module they never call. Under npm 12 those commands died on `require` with `ERR_DLOPEN_FAILED`, because npm 12 blocks a dependency's install scripts unless the *installing project* approves them and `lz4` was left with the unloadable prebuilt binary it ships. Only `rocas plugin` writing a `.rbxm` still needs `lz4`; `--output <file>.rbxmx` writes the same plugin as XML with no native code.
+
+### Note
+
+- 0.4.1's entry overstated its own fix. `allowScripts` in this package's `package.json` only governs installs *of this repository* — it fixed CI and the publish workflow, and does nothing for anyone installing rocas. The consumer-side problem is what 0.4.2 fixes.
+
 ## [0.4.1] - 2026-09-07
 
 ### Fixed
