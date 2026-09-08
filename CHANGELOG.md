@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Double-click plugin installers on every GitHub Release.** Getting the Studio plugin meant installing Node, then npm, then running `rocas plugin` — a lot to ask of an artist who only wants the asset browser. Each release now carries `rocas-plugin-installer-windows.cmd` and `rocas-plugin-installer-macos.zip`, built by `scripts/build-installers.js` and attached by the publish workflow. The plugin is static, so each installer carries the `.rbxm` inside it as base64 and writes it to the same folder `rocas plugin` would; nothing is downloaded at install time, so a proxy or a dead URL cannot break it. The macOS one ships zipped because a release asset carries no permissions and a `.command` without its executable bit cannot be double-clicked. The raw `rocas-studio-plugin.rbxm` is attached too, for dropping into the Plugins folder by hand.
+
 ## [0.5.0] - 2026-09-08
 
 ### Fixed

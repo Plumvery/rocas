@@ -1,6 +1,7 @@
 name: Publish
 
-# GitHub Release を publish したら npm へ公開する。
+# GitHub Release を publish したら npm へ公開し、Studio プラグインの
+# インストーラーをそのリリースへ添付する。
 # workflow_dispatch は、リリースを作り直さずに公開だけやり直したいとき用。
 on:
   release:
@@ -67,3 +68,42 @@ jobs:
       # テストは package.json の prepublishOnly が走らせるので、ここでは呼ばない。
       - run: npm publish
         if: steps.published.outputs.already == 'false'
+
+  # npm を触らない人向けの導線。ダブルクリックで Studio の Plugins フォルダへ
+  # プラグインを置くだけのスクリプトを、リリースのアセットとして配る。
+  installer:
+    # workflow_dispatch にはアセットを貼る先のリリースが無い。
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+
+    permissions:
+      # リリースへアセットを上げるのに要る。publish ジョブとは分けてあるので、
+      # あちらは contents: read のままにできる。
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # .rbxm を焼くのに rbxm-parser -> lz4 のネイティブビルドが要る。
+      # ci.yml と同じ理由で install スクリプトは飛ばせない。
+      - run: npm ci
+
+      - run: node scripts/build-installers.js
+
+      # --clobber: リリースを作り直したときに、古いアセットへ上書きする。
+      - name: Attach the installers to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            dist/rocas-plugin-installer-windows.cmd \
+            dist/rocas-plugin-installer-macos.zip \
+            dist/rocas-studio-plugin.rbxm \
+            --clobber
