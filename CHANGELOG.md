@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-08
+
+### Fixed
+
+- **The Studio plugin's asset list is no longer empty by default.** It only ever populated from a `RocasManifest` ModuleScript produced by `rocas manifest`; without that bake step `findManifest()` returned nothing and the browser rendered zero rows with "Manifest not loaded". The plugin now reads the binding modules `rocas sync` generates, which Rojo or Argon already syncs into `ReplicatedStorage`: the module's variable name gives the asset type and the nested keys give each path. Because those modules come from the lock files, the browser lists every synced asset, including ones no script references — nothing filters rows by usage. A baked manifest still works and takes priority for the IDs it covers. Measured against a real place: 0 assets before, 381 after, matching that project's lock files exactly (animations 70, images 240, maps 2, sounds 69).
+
+### Added
+
+- **Folder tree, audio preview, and thumbnails in the asset browser.** The list was flat, so a few hundred assets were hard to navigate. Rows are now grouped into a collapsible folder tree built from the binding modules' nested paths, with a recursive asset count per folder; searching force-expands so a match is never hidden. Audio rows get a play/stop button. The old `Sound` API cannot drive this: in Edit mode a Sound's playback never advances (`TimePosition` stays at 0 and `Ended` never fires, so it is silent), and `SoundService:PlayLocalSound` plays an unreachable *copy*. `AudioPlayer` wired to an `AudioDeviceOutput` does advance and is audible in Edit mode, and can be stopped, so the button means what it says; all three instances live under `CoreGui`, which is not saved with the place. Model rows fetch Roblox's own thumbnail via `rbxthumb://type=Asset` — Animation assets only return a generic icon, so they are left alone. The colored type square sits behind every thumbnail and is hidden once the image reports `IsLoaded`, so a transparent thumbnail does not collide with the type initial.
+- **`rocas plugin --module` / `rocas plugin --loader`** keep the plugin source in your repository instead of a baked plugin file. `--module` writes `src/server/RocasPlugin.luau`, a ModuleScript returning `function(context)`, to sync into the place with Rojo or Argon; `--loader` installs a small never-changing plugin that finds and requires it, passing in the toolbar button and dock widget it owns. Editing the module and letting Rojo sync it rebuilds the window in place — no re-bake, no Studio restart. The loader requires a fresh clone each reload because `require` caches modules permanently, and the module returns a cleanup function so a reload leaves no stale connections or duplicated toolbar buttons.
+
+### Changed
+
+- **The plugin usage scan is ~15x faster.** It tested every watched script against every asset with plain substring searches and built no index. Measured on a 1600-script place once discovery found 424 assets: 3.0s per scan, rerun on every source edit. It now inverts asset tokens into a word index once and walks each script a single time: 0.2s on the same place. Matching whole words instead of substrings also removes a class of false positives, where an asset named `star` counted every script mentioning `superstar`.
+- `generateStudioPlugin()` is now composed from shared service, host, and body sections so the standalone plugin and the loadable module stay byte-identical in behavior.
+
+### Note
+
+- The plugin template must stay ASCII-only: `rbxm-parser` corrupts non-ASCII text in a `Script.Source` on round-trip, inserting NUL bytes. Japanese comments belong in the JavaScript around the template, not inside it. A test now enforces this.
+- Only rocas-generated binding modules are read. Inline `rbxassetid://` literals written by hand elsewhere are deliberately ignored: this browser is for the assets rocas synced. An asset appears once its group's generated module is synced into `ReplicatedStorage`.
+
 ## [0.4.2] - 2026-09-07
 
 ### Fixed

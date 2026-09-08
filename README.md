@@ -138,6 +138,8 @@ rocas watch
 | `rocas watch` | Watch asset directories and `rocas.toml`, syncing on change |
 | `rocas fetch` | Download the assets listed in the lock files |
 | `rocas plugin` | Generate the static Roblox Studio plugin |
+| `rocas plugin --module` | Generate the plugin as a ModuleScript to keep in your project |
+| `rocas plugin --loader` | Install the one-time loader that requires that module |
 | `rocas manifest` | Generate a `ReplicatedStorage` manifest ModuleScript from lock files |
 | `rocas help` | Show help |
 
@@ -149,6 +151,8 @@ rocas watch
 | `--group <name>` | `fetch` | every group | Only fetch this `[[sync]]` group; repeatable |
 | `--out`, `-o <dir>` | `fetch` | `.rocas-cache` | Where to write the downloaded assets |
 | `--output`, `-o <path>` | `plugin` | Studio local Plugins folder | Where to write the plugin |
+| `--module` | `plugin` | `src/server/RocasPlugin.luau` | Write the plugin as a project ModuleScript instead of a baked file |
+| `--loader` | `plugin` | `rocas-loader.rbxm` | Write the one-time loader that requires that module |
 | `--output`, `-o <path>` | `manifest` | `src/shared/RocasManifest.luau` | Where to write the manifest module |
 | `--local` | `manifest` | — | Build from local files instead of lock files; no upload, no API key |
 
@@ -328,13 +332,56 @@ The plugin is static — you never need to regenerate it when assets change.
 
 ### Browsing synced assets
 
-After running `rocas sync`, generate a manifest ModuleScript for Rojo or Argon to sync into `ReplicatedStorage`:
+Nothing to bake. The plugin reads the binding modules `rocas sync` generates, which Rojo or Argon already syncs into `ReplicatedStorage`. The module's variable name gives the asset type (`images` → Decal, `sounds` → Audio, `animations` → Animation, `maps` → Model) and the nested keys give each asset's path.
+
+Because those modules are generated from your lock files, the browser lists **every synced asset** — including ones no script references yet, which show as `Used in 0`. Nothing filters rows by usage.
+
+Only rocas-generated modules are read. Inline `rbxassetid://` literals written by hand elsewhere are deliberately ignored: this is a browser for the assets rocas synced, and picking up arbitrary IDs made it something else.
+
+Open the browser to search assets, preview images, inspect asset IDs, and click **Insert** to place references into the current place. It re-scans automatically when Rojo or Argon syncs a change.
+
+Rows are grouped into a collapsible **folder tree** built from those nested paths, with a recursive asset count on each folder. Folders start collapsed; typing in the search box force-expands everything so a match is never hidden. Assets sort alphabetically within a folder.
+
+Each row's preview square shows:
+
+| Type | Preview |
+|---|---|
+| Image | the image itself |
+| Model | Roblox's thumbnail (`rbxthumb://type=Asset`) |
+| Audio | a play/stop button — click to preview the sound in Studio |
+| anything else | a colored square with the type initial |
+
+The colored type square sits behind every thumbnail, so an asset whose thumbnail is missing or still loading still reads as its type.
+
+> [!NOTE]
+> An asset appears once its group's generated module is synced into `ReplicatedStorage`. If you point codegen somewhere else, or have not run `rocas sync` since adding a group, that group will not be listed.
+
+A baked manifest is still supported and takes priority when present — it knows the group, source path, and declared asset type from `rocas.toml`:
 
 ```bash
 rocas manifest --output src/shared/RocasManifest.luau
 ```
 
-The plugin scans `ReplicatedStorage` for the manifest module, then opens an asset browser where you can search synced assets, preview images, inspect asset IDs, and click **Insert** to place references into the current place. When Rojo or Argon syncs a changed manifest into Studio, the plugin reloads the catalog automatically.
+Entries in the manifest override discovered assets with the same ID; anything the manifest does not cover stays as scanned.
+
+### Keeping the plugin source in your project
+
+Instead of a baked plugin file, write the plugin as a ModuleScript that lives in your repository:
+
+```bash
+rocas plugin --module
+```
+
+That writes `src/server/RocasPlugin.luau` (ServerStorage, so the plugin code is never replicated to production clients). Sync it into the place with Rojo or Argon, then install the loader **once**:
+
+```bash
+rocas plugin --loader
+```
+
+The loader is a small plugin that finds the `RocasPlugin` ModuleScript in `ServerStorage` or `ReplicatedStorage` and requires it, passing in the toolbar button and dock widget it owns. Editing the module in your project and letting Rojo sync it reloads the window immediately — no re-bake, no Studio restart.
+
+> [!NOTE]
+> The loader itself still has to live in the Studio local Plugins folder: the `plugin` global only exists for a plugin loaded from there. But it is installed once and never needs regenerating, because it contains no rocas logic of its own. Studio's own documented workflow ("Save as Local Plugin" from a ServerStorage script) copies your script into that folder on every change, which is the re-bake this avoids.
 
 It also watches `Script`, `LocalScript`, and `ModuleScript` source changes inside Studio, updating each asset's usage count as matching asset IDs, paths, or file names appear in script source.
 

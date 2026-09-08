@@ -4,7 +4,12 @@ const { loadEnv, loadConfig } = require("../src/config");
 const { syncAll } = require("../src/sync");
 const { watchAll } = require("../src/watch");
 const { fetchAll, DEFAULT_FETCH_DIR } = require("../src/fetch");
-const { writeStudioManifest, writeStudioPlugin } = require("../src/studio-plugin");
+const {
+	writeStudioManifest,
+	writeStudioPlugin,
+	writeStudioPluginLoader,
+	writeStudioPluginModule,
+} = require("../src/studio-plugin");
 const path = require("path");
 
 const HELP = `
@@ -15,6 +20,10 @@ Usage:
   rocas watch      Watch for file changes and sync automatically
   rocas fetch      Download the assets listed in the lock files
   rocas plugin     Generate the static Roblox Studio plugin
+  rocas plugin --module
+                   Generate the plugin as a ModuleScript to keep in your project
+  rocas plugin --loader
+                   Install the one-time loader that requires that module
   rocas manifest   Generate a ReplicatedStorage manifest module from lock files
   rocas manifest --local
                    Generate a manifest from local asset files without uploading
@@ -32,6 +41,12 @@ Options (fetch):
 
 Options (plugin):
   --output, -o <path>  Output plugin path (default: Roblox Studio local Plugins folder)
+  --module             Write the plugin as a ModuleScript for your project
+                       (default: src/server/RocasPlugin.luau) instead of a
+                       baked plugin file. Sync it into the place and let the
+                       loader require it; editing it reloads the window.
+  --loader             Write the one-time loader plugin into the Studio local
+                       Plugins folder (default: rocas-loader.rbxm)
 
 Options (manifest):
   --output, -o <path>  Output manifest ModuleScript path (default: src/shared/RocasManifest.luau)
@@ -73,6 +88,23 @@ async function main() {
 			console.error("plugin --local was removed. Use `rocas manifest --local` with the static plugin instead.");
 			process.exit(1);
 		}
+
+		if (process.argv.includes("--module")) {
+			const modulePath = writeStudioPluginModule(null, process.cwd(), outputPath);
+			console.log(`Generated Studio plugin module: ${path.relative(process.cwd(), modulePath)}`);
+			console.log("Sync it into the place (ServerStorage is recommended), then install the loader once:");
+			console.log("  rocas plugin --loader");
+			return;
+		}
+
+		if (process.argv.includes("--loader")) {
+			const loaderPath = writeStudioPluginLoader(null, process.cwd(), outputPath);
+			const displayPath = outputPath ? path.relative(process.cwd(), loaderPath) : loaderPath;
+			console.log(`Generated Studio plugin loader: ${displayPath}`);
+			console.log("Restart Studio once to load it. It requires the RocasPlugin module synced into the place.");
+			return;
+		}
+
 		const pluginPath = writeStudioPlugin(null, process.cwd(), outputPath);
 		const displayPath = outputPath ? path.relative(process.cwd(), pluginPath) : pluginPath;
 		console.log(`Generated Studio plugin: ${displayPath}`);

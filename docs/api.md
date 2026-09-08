@@ -18,7 +18,7 @@ const rocas = require("@plumvery/rocas");
 - [Code generation](#code-generation) — [`generateLuau`](#generateluaulock-varname-options), [`generateDts`](#generatedtslock-varname-options)
 - [Codegen formats](#codegen-formats) — [`registerCodegenFormat`](#registercodegenformatformat), [`listCodegenFormats`](#listcodegenformats), [`resolveCodegenFormat`](#resolvecodegenformatformatname), [`DEFAULT_CODEGEN_FORMAT`](#default_codegen_format)
 - [Lock files and asset maps](#lock-files-and-asset-maps) — [`lockPathForSync`](#lockpathforsyncsyncconfig-cwd), [`loadLockForSync`](#loadlockforsyncsyncconfig-cwd), [`resolveEntryAssetId`](#resolveentryassetidentry), [`buildAssetMap`](#buildassetmapconfig-cwd), [`normalizeAssetPath`](#normalizeassetpathvalue)
-- [Studio plugin and manifest](#studio-plugin-and-manifest) — [`writeStudioPlugin`](#writestudiopluginconfig-cwd-outputpath-options), [`writeStudioManifest`](#writestudiomanifestconfig-cwd-outputpath-options), and lower-level helpers
+- [Studio plugin and manifest](#studio-plugin-and-manifest) — [`writeStudioPlugin`](#writestudiopluginconfig-cwd-outputpath-options), [`writeStudioManifest`](#writestudiomanifestconfig-cwd-outputpath-options), [`writeStudioPluginModule`](#writestudiopluginmoduleconfig-cwd-outputpath), [`writeStudioPluginLoader`](#writestudiopluginloaderconfig-cwd-outputpath), and lower-level helpers
 
 ## Shared shapes
 
@@ -365,6 +365,22 @@ Returns the raw Luau source of the static Studio plugin.
 
 Wrap plugin source (default: `generateStudioPlugin()`) in a binary `.rbxm` buffer / an XML `.rbxmx` string containing a single `Script` named `rocas`.
 
+### `generateStudioPluginModule()`
+
+Returns the Luau source of the plugin as a ModuleScript: `return function(context) ... end`, where `context` carries `plugin`, `toolbar`, `button`, and `widget`. The mount function returns a cleanup function that disconnects everything and destroys the UI, so the loader can replace it in place. Keep this file in your project and sync it into the place; it never creates a toolbar or dock widget of its own, because reloading would duplicate them.
+
+### `generateStudioPluginLoader()`
+
+Returns the Luau source of the loader plugin. It owns the toolbar button and dock widget, finds a `RocasPlugin` ModuleScript in `ServerStorage` or `ReplicatedStorage`, requires a *clone* of it (`require` caches modules permanently, so a clone is the only way to pick up a new version), calls the returned function with the context, and reloads on source changes. It contains no rocas logic, so it does not need regenerating when rocas changes.
+
+### `writeStudioPluginModule(config, cwd?, outputPath?)`
+
+Writes `generateStudioPluginModule()` to `outputPath` (default: `src/server/RocasPlugin.luau`). Returns the resolved path. Only rewrites the file when the contents differ.
+
+### `writeStudioPluginLoader(config, cwd?, outputPath?)`
+
+Writes the loader to `outputPath`, defaulting to `<plugins dir>/rocas-loader.rbxm`. Chooses the encoding from the extension: `.lua`/`.luau` write raw source, `.rbxmx` writes XML, anything else writes a binary `.rbxm`. Returns the resolved path.
+
 ### `robloxStudioPluginsDir(env?, platform?)`
 
 Roblox Studio's local Plugins folder: `%LOCALAPPDATA%\Roblox\Plugins` on Windows, `~/Documents/Roblox/Plugins` otherwise, or `null` when neither environment variable is set.
@@ -373,6 +389,6 @@ Roblox Studio's local Plugins folder: `%LOCALAPPDATA%\Roblox\Plugins` on Windows
 
 `<plugins dir>/rocas-studio-plugin.rbxm`, falling back to `cwd` when the Plugins folder can't be determined.
 
-### `resolveStudioPluginOutputPath(cwd?, outputPath?)` / `resolveManifestOutputPath(cwd?, outputPath?)`
+### `resolveStudioPluginOutputPath(cwd?, outputPath?)` / `resolveManifestOutputPath(cwd?, outputPath?)` / `resolvePluginModuleOutputPath(cwd?, outputPath?)` / `resolveStudioLoaderOutputPath(cwd?, outputPath?)`
 
 Resolve an explicit output path against `cwd`, or return the respective default.

@@ -365,6 +365,22 @@ Studio 連携は 2 つの成果物から成ります: Studio に一度だけイ�
 
 プラグインソース（デフォルト: `generateStudioPlugin()`）を、`rocas` という名前の `Script` を 1 つ含むバイナリ `.rbxm` バッファ / XML `.rbxmx` 文字列にラップします。
 
+### `generateStudioPluginModule()`
+
+プラグイン本体を ModuleScript として返します。形は `return function(context) ... end` で、`context` には `plugin`・`toolbar`・`button`・`widget` が入ります。戻り値は後片付け用の関数で、接続を切って UI を破棄するため、ローダーはその場で新しい版に差し替えられます。プロジェクトに置いてプレースへ同期して使います。ツールバーやドックウィジェットを自分では作りません — リロードのたびに増殖してしまうためです。
+
+### `generateStudioPluginLoader()`
+
+ローダープラグインのソースを返します。ツールバーボタンとドックウィジェットを所有し、`ServerStorage` か `ReplicatedStorage` から `RocasPlugin` ModuleScript を探し、その*クローン*を require し (`require` はモジュールを永続的にキャッシュするので、新しい版を読むにはクローンしかありません)、返ってきた関数を context 付きで呼びます。ソース変更でリロードします。rocas 側のロジックを持たないので、rocas が更新されても再生成は不要です。
+
+### `writeStudioPluginModule(config, cwd?, outputPath?)`
+
+`generateStudioPluginModule()` を `outputPath`（デフォルト: `src/server/RocasPlugin.luau`）へ書き出し、解決済みパスを返します。内容が変わったときだけ書き込みます。
+
+### `writeStudioPluginLoader(config, cwd?, outputPath?)`
+
+ローダーを `outputPath`（デフォルト: `<Plugins ディレクトリ>/rocas-loader.rbxm`）へ書き出します。拡張子で形式を選び、`.lua`/`.luau` は生ソース、`.rbxmx` は XML、それ以外はバイナリ `.rbxm` になります。解決済みパスを返します。
+
 ### `robloxStudioPluginsDir(env?, platform?)`
 
 Roblox Studio のローカル Plugins フォルダ: Windows では `%LOCALAPPDATA%\Roblox\Plugins`、それ以外では `~/Documents/Roblox/Plugins`、どちらの環境変数も無い場合は `null`。
