@@ -315,6 +315,7 @@ function writeStudioManifest(config, cwd = process.cwd(), outputPath, options = 
 }
 
 const STUDIO_PLUGIN_SERVICES = `local InsertService = game:GetService("InsertService")
+local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Selection = game:GetService("Selection")
@@ -1397,20 +1398,125 @@ end
 
 local function clearRows()
 	for _, child in ipairs(list:GetChildren()) do
-		if child.Name == "AssetRow" then
+		if child.Name == "AssetRow" or child.Name == "FolderRow" then
 			child:Destroy()
 		end
 	end
 end
 
-local function createRow(asset, index)
+local expandedFolders = {}
+local previewSound = nil
+local previewSoundKey = nil
+local previewOnChanged = nil
+
+local function stopPreviewSound()
+	if previewSound then
+		pcall(function()
+			previewSound:Stop()
+			previewSound:Destroy()
+		end)
+	end
+
+	previewSound = nil
+	previewSoundKey = nil
+end
+
+-- Audio preview. A Sound only loads once it has a parent, so it goes under
+-- CoreGui, which is not saved with the place and so does not dirty it.
+-- SoundService:PlayLocalSound leaves IsPlaying false, so Play is used instead.
+local function togglePreviewSound(asset, onChanged)
+	local key = assetKey(asset)
+	local wasPlaying = previewSoundKey == key
+	local previousChanged = previewOnChanged
+
+	stopPreviewSound()
+	if previousChanged then
+		pcall(previousChanged, false)
+	end
+	previewOnChanged = nil
+
+	if wasPlaying then
+		if onChanged then
+			onChanged(false)
+		end
+		return
+	end
+
+	local assetId = currentAssetId(asset)
+	if not assetId or tostring(assetId) == "" then
+		return
+	end
+
+	local sound = Instance.new("Sound")
+	sound.Name = "rocasPreview"
+	sound.SoundId = tostring(assetId)
+	sound.Volume = 0.5
+	sound.Parent = CoreGui
+
+	previewSound = sound
+	previewSoundKey = key
+	previewOnChanged = onChanged
+
+	sound.Ended:Connect(function()
+		if previewSoundKey == key then
+			stopPreviewSound()
+			previewOnChanged = nil
+			if onChanged then
+				onChanged(false)
+			end
+		end
+	end)
+
+	sound:Play()
+	if onChanged then
+		onChanged(true)
+	end
+end
+
+local THUMBNAIL_ASSET_TYPES = { Model = true, Animation = true }
+
+local function thumbnailImageFor(asset)
+	if not isAssetReady(asset) then
+		return nil
+	end
+
+	local assetId = currentAssetId(asset)
+
+	-- A decal is the image itself, so show it directly rather than a crop of it.
+	if asset.assetType == "Decal" then
+		return tostring(assetId)
+	end
+
+	if THUMBNAIL_ASSET_TYPES[asset.assetType] then
+		local numeric = numericAssetId(assetId)
+		if numeric then
+			return "rbxthumb://type=Asset&id=" .. tostring(numeric) .. "&w=150&h=150"
+		end
+	end
+
+	return nil
+end
+
+local function createRow(asset, index, depth, label)
+	local indent = (depth or 0) * 14
+
+	-- The outer frame spans the full width so UIListLayout stacks rows; the card
+	-- inside is offset to show the folder depth.
+	local container = Instance.new("Frame")
+	container.Name = "AssetRow"
+	container.LayoutOrder = index
+	container.Size = UDim2.new(1, -8, 0, 88)
+	container.BackgroundTransparency = 1
+	container.BorderSizePixel = 0
+	container.Parent = list
+
 	local row = Instance.new("Frame")
-	row.Name = "AssetRow"
-	row.LayoutOrder = index
-	row.Size = UDim2.new(1, -8, 0, 88)
+	row.Name = "Card"
+	row.Position = UDim2.fromOffset(indent, 0)
+	row.Size = UDim2.new(1, -indent, 1, 0)
 	row.BackgroundColor3 = Color3.fromRGB(31, 34, 40)
 	row.BorderSizePixel = 0
-	row.Parent = list
+	row.Parent = container
 
 	local rowCorner = Instance.new("UICorner")
 	rowCorner.CornerRadius = UDim.new(0, 6)
@@ -1422,30 +1528,68 @@ local function createRow(asset, index)
 	preview.Size = UDim2.fromOffset(56, 56)
 	preview.BackgroundColor3 = typeColors[asset.assetType] or typeColors.Unknown
 	preview.BorderSizePixel = 0
+	preview.ClipsDescendants = true
 	preview.Parent = row
 
 	local previewCorner = Instance.new("UICorner")
 	previewCorner.CornerRadius = UDim.new(0, 6)
 	previewCorner.Parent = preview
 
-	if asset.assetType == "Decal" and isAssetReady(asset) then
+	-- The colored square with the type initial stays underneath the thumbnail,
+	-- so a type with no real thumbnail -- or one that fails to load -- still
+	-- reads as its type instead of showing an empty box.
+	local typeInitial = Instance.new("TextLabel")
+	typeInitial.Name = "TypeInitial"
+	typeInitial.Size = UDim2.fromScale(1, 1)
+	typeInitial.ZIndex = 1
+	typeInitial.BackgroundTransparency = 1
+	typeInitial.Font = Enum.Font.GothamBold
+	typeInitial.Text = string.sub(tostring(asset.assetType or "?"), 1, 1)
+	typeInitial.TextColor3 = Color3.fromRGB(255, 255, 255)
+	typeInitial.TextSize = 22
+	typeInitial.Parent = preview
+
+	local thumbnailImage = thumbnailImageFor(asset)
+	if thumbnailImage then
 		local thumbnail = Instance.new("ImageLabel")
 		thumbnail.Name = "Thumbnail"
 		thumbnail.Size = UDim2.fromScale(1, 1)
+		thumbnail.ZIndex = 2
 		thumbnail.BackgroundTransparency = 1
-		thumbnail.Image = currentAssetId(asset)
+		thumbnail.Image = thumbnailImage
 		thumbnail.ScaleType = Enum.ScaleType.Crop
 		thumbnail.Parent = preview
-	else
-		local typeInitial = Instance.new("TextLabel")
-		typeInitial.Name = "TypeInitial"
-		typeInitial.Size = UDim2.fromScale(1, 1)
-		typeInitial.BackgroundTransparency = 1
-		typeInitial.Font = Enum.Font.GothamBold
-		typeInitial.Text = string.sub(tostring(asset.assetType or "?"), 1, 1)
-		typeInitial.TextColor3 = Color3.fromRGB(255, 255, 255)
-		typeInitial.TextSize = 22
-		typeInitial.Parent = preview
+	end
+
+	if asset.assetType == "Audio" and isAssetReady(asset) then
+		local playButton = Instance.new("TextButton")
+		playButton.Name = "Preview"
+		playButton.AnchorPoint = Vector2.new(0.5, 0.5)
+		playButton.Position = UDim2.fromScale(0.5, 0.5)
+		playButton.Size = UDim2.fromOffset(28, 28)
+		playButton.ZIndex = 3
+		playButton.BackgroundColor3 = Color3.fromRGB(16, 18, 22)
+		playButton.BackgroundTransparency = 0.2
+		playButton.BorderSizePixel = 0
+		playButton.AutoButtonColor = true
+		playButton.Font = Enum.Font.GothamBold
+		-- ASCII only: rbxm-parser corrupts non-ASCII inside Script.Source.
+		playButton.Text = previewSoundKey == assetKey(asset) and "II" or ">"
+		playButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+		playButton.TextSize = 13
+		playButton.Parent = preview
+
+		local playCorner = Instance.new("UICorner")
+		playCorner.CornerRadius = UDim.new(1, 0)
+		playCorner.Parent = playButton
+
+		playButton.MouseButton1Click:Connect(function()
+			togglePreviewSound(asset, function(playing)
+				if playButton.Parent then
+					playButton.Text = playing and "II" or ">"
+				end
+			end)
+		end)
 	end
 
 	local title = Instance.new("TextLabel")
@@ -1454,7 +1598,7 @@ local function createRow(asset, index)
 	title.Size = UDim2.new(1, -152, 0, 20)
 	title.BackgroundTransparency = 1
 	title.Font = Enum.Font.GothamBold
-	title.Text = tostring(asset.name or asset.path or "Asset")
+	title.Text = tostring(label or asset.name or asset.path or "Asset")
 	title.TextColor3 = Color3.fromRGB(242, 245, 248)
 	title.TextSize = 13
 	title.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1554,16 +1698,157 @@ local function createRow(asset, index)
 	end)
 end
 
+-- Group the flat asset list into folders the way a project view does. The
+-- binding modules already carry a nested path, so the tree is just that path
+-- split on "/", with the group name as the top level.
+local function buildAssetTree(visibleAssets)
+	local root = { name = "", path = "", folders = {}, folderOrder = {}, files = {} }
+
+	for _, asset in ipairs(visibleAssets) do
+		local parts = {}
+		for part in string.gmatch(tostring(asset.group or "") .. "/" .. tostring(asset.path or ""), "[^/]+") do
+			table.insert(parts, part)
+		end
+
+		local node = root
+		local prefix = ""
+		for index = 1, #parts - 1 do
+			local part = parts[index]
+			prefix = prefix .. "/" .. part
+			local child = node.folders[part]
+			if not child then
+				child = { name = part, path = prefix, folders = {}, folderOrder = {}, files = {} }
+				node.folders[part] = child
+				table.insert(node.folderOrder, part)
+			end
+			node = child
+		end
+
+		table.insert(node.files, { asset = asset, label = parts[#parts] or tostring(asset.name or "") })
+	end
+
+	return root
+end
+
+local function sortAssetTree(node)
+	table.sort(node.folderOrder)
+	table.sort(node.files, function(a, b)
+		return string.lower(a.label) < string.lower(b.label)
+	end)
+
+	for _, name in ipairs(node.folderOrder) do
+		sortAssetTree(node.folders[name])
+	end
+end
+
+local function countTreeAssets(node)
+	local total = #node.files
+	for _, name in ipairs(node.folderOrder) do
+		total = total + countTreeAssets(node.folders[name])
+	end
+	return total
+end
+
+local function flattenAssetTree(node, depth, rows, forceExpanded)
+	for _, name in ipairs(node.folderOrder) do
+		local folder = node.folders[name]
+		local expanded = forceExpanded or expandedFolders[folder.path] == true
+
+		table.insert(rows, {
+			kind = "folder",
+			folder = folder,
+			depth = depth,
+			expanded = expanded,
+			count = countTreeAssets(folder),
+		})
+
+		if expanded then
+			flattenAssetTree(folder, depth + 1, rows, forceExpanded)
+		end
+	end
+
+	for _, file in ipairs(node.files) do
+		table.insert(rows, { kind = "asset", asset = file.asset, label = file.label, depth = depth })
+	end
+end
+
+local function createFolderRow(entry, index)
+	local row = Instance.new("TextButton")
+	row.Name = "FolderRow"
+	row.LayoutOrder = index
+	row.Size = UDim2.new(1, -8, 0, 24)
+	row.BackgroundColor3 = Color3.fromRGB(28, 31, 37)
+	row.BorderSizePixel = 0
+	row.AutoButtonColor = false
+	row.Font = Enum.Font.Gotham
+	row.Text = ""
+	row.Parent = list
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 4)
+	corner.Parent = row
+
+	local indent = 8 + entry.depth * 14
+
+	local arrow = Instance.new("TextLabel")
+	arrow.Name = "Arrow"
+	arrow.Position = UDim2.fromOffset(indent, 0)
+	arrow.Size = UDim2.fromOffset(14, 24)
+	arrow.BackgroundTransparency = 1
+	arrow.Font = Enum.Font.GothamBold
+	-- ASCII only: rbxm-parser corrupts non-ASCII inside Script.Source.
+	arrow.Text = entry.expanded and "-" or "+"
+	arrow.TextColor3 = Color3.fromRGB(150, 157, 168)
+	arrow.TextSize = 14
+	arrow.Parent = row
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Position = UDim2.fromOffset(indent + 18, 0)
+	label.Size = UDim2.new(1, -(indent + 26), 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.Text = tostring(entry.folder.name) .. "  (" .. tostring(entry.count) .. ")"
+	label.TextColor3 = Color3.fromRGB(214, 220, 228)
+	label.TextSize = 12
+	label.TextTruncate = Enum.TextTruncate.AtEnd
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = row
+
+	row.MouseButton1Click:Connect(function()
+		expandedFolders[entry.folder.path] = not entry.expanded
+		renderList()
+	end)
+end
+
 function renderList()
 	clearRows()
 
-	local visible = 0
+	local visibleAssets = {}
 	for _, asset in ipairs(assets) do
 		if matchesFilter(asset) then
-			visible = visible + 1
-			createRow(asset, visible)
+			table.insert(visibleAssets, asset)
 		end
 	end
+
+	local tree = buildAssetTree(visibleAssets)
+	sortAssetTree(tree)
+
+	-- While searching, expand everything so matches are never hidden inside a
+	-- collapsed folder.
+	local searching = string.match(searchBox.Text or "", "%S") ~= nil
+	local rows = {}
+	flattenAssetTree(tree, 0, rows, searching)
+
+	for index, entry in ipairs(rows) do
+		if entry.kind == "folder" then
+			createFolderRow(entry, index)
+		else
+			createRow(entry.asset, index, entry.depth, entry.label)
+		end
+	end
+
+	local visible = #visibleAssets
 
 	list.CanvasSize = UDim2.fromOffset(0, listLayout.AbsoluteContentSize.Y + 8)
 	if localMode then
@@ -1631,6 +1916,8 @@ reloadManifest()
 -- Disconnect everything and remove the UI. The loader calls this before it
 -- mounts a newer copy of this module, so a reload leaves nothing behind.
 local function cleanup()
+	stopPreviewSound()
+
 	for _, connection in ipairs(pluginConnections) do
 		pcall(function()
 			connection:Disconnect()

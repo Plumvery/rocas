@@ -340,6 +340,19 @@ Only rocas-generated modules are read. Inline `rbxassetid://` literals written b
 
 Open the browser to search assets, preview images, inspect asset IDs, and click **Insert** to place references into the current place. It re-scans automatically when Rojo or Argon syncs a change.
 
+Rows are grouped into a collapsible **folder tree** built from those nested paths, with a recursive asset count on each folder. Folders start collapsed; typing in the search box force-expands everything so a match is never hidden. Assets sort alphabetically within a folder.
+
+Each row's preview square shows:
+
+| Type | Preview |
+|---|---|
+| Decal | the image itself |
+| Model, Animation | Roblox's thumbnail (`rbxthumb://type=Asset`) |
+| Audio | a play/stop button — click to preview the sound in Studio |
+| anything else | a colored square with the type initial |
+
+The colored type square sits behind every thumbnail, so an asset whose thumbnail is missing or still loading still reads as its type.
+
 > [!NOTE]
 > An asset appears once its group's generated module is synced into `ReplicatedStorage`. If you point codegen somewhere else, or have not run `rocas sync` since adding a group, that group will not be listed.
 
