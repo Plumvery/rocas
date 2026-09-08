@@ -45,6 +45,14 @@ const {
 	writeStudioPluginLoader,
 	writeStudioPluginModule,
 } = require("../src/studio-plugin");
+const {
+	MACOS_INSTALLER_NAME,
+	PAYLOAD_MARKER,
+	PLUGIN_FILE_NAME,
+	buildMacInstaller,
+	buildWindowsInstaller,
+	createZip,
+} = require("../scripts/build-installers");
 
 // --- Config parsing ---
 console.log("Testing config parsing...");
@@ -634,6 +642,58 @@ const writtenLoaderPath = writeStudioPluginLoader(null, tempDir, "loader-out/roc
 assert.strictEqual(writtenLoaderPath, path.resolve(tempDir, "loader-out/rocas-loader.rbxmx"));
 assert(fs.readFileSync(writtenLoaderPath, "utf8").includes("RocasPlugin"));
 console.log("  Studio plugin module and loader generation OK");
+
+// --- Release installers (double-click, no npm) ---
+console.log("Testing Studio plugin installers...");
+
+// 76 桁で折り返すので、1 行に収まらない長さを渡す。
+const installerPayload = Buffer.from(Array.from({ length: 300 }, (_, index) => (index * 7) % 256));
+
+// インストーラーは自分自身をマーカー行で切って後ろを decode する。
+// マーカーだけの行が 2 本あると、切る位置が変わって壊れる。
+function extractInstallerPayload(script) {
+	const lines = script.split(/\r?\n/);
+	const markerLines = lines.filter((line) => line === PAYLOAD_MARKER);
+	assert.strictEqual(markerLines.length, 1, "the payload marker must own exactly one line");
+	return Buffer.from(lines.slice(lines.indexOf(PAYLOAD_MARKER) + 1).join(""), "base64");
+}
+
+const windowsInstaller = buildWindowsInstaller(installerPayload);
+assert(windowsInstaller.startsWith("@echo off\r\n"));
+// cmd.exe の括弧ブロックは LF だけだと崩れることがある。
+assert.deepStrictEqual(windowsInstaller.split("\n").filter((line) => line !== "" && !line.endsWith("\r")), []);
+assert(windowsInstaller.includes("Join-Path $env:LOCALAPPDATA 'Roblox\\Plugins'"));
+assert(windowsInstaller.includes(`Join-Path $dir '${PLUGIN_FILE_NAME}'`));
+// マーカーの手前で抜けないと、cmd が base64 をコマンドとして読む。
+assert(windowsInstaller.indexOf("\r\nexit /b\r\n") < windowsInstaller.lastIndexOf(PAYLOAD_MARKER));
+assert(extractInstallerPayload(windowsInstaller).equals(installerPayload));
+
+const macInstaller = buildMacInstaller(installerPayload);
+assert(macInstaller.startsWith("#!/bin/bash\n"));
+assert(!macInstaller.includes("\r"));
+assert(macInstaller.includes('dir="$HOME/Documents/Roblox/Plugins"'));
+assert(macInstaller.includes(`file="$dir/${PLUGIN_FILE_NAME}"`));
+// awk のパターンは行頭行末で留める。留めないと、awk を呼ぶ行そのものに当たる。
+assert(macInstaller.includes(`/^${PAYLOAD_MARKER}$/`));
+assert(macInstaller.indexOf("\nexit 0\n") < macInstaller.lastIndexOf(PAYLOAD_MARKER));
+assert(extractInstallerPayload(macInstaller).equals(installerPayload));
+
+// GitHub Release のアセットには実行ビットが残らないので、mac 版は zip で配る。
+// external attributes の上位 16 bit が 0100755 でないと、展開しても実行できない。
+const installerZip = createZip([{ name: MACOS_INSTALLER_NAME, data: Buffer.from(macInstaller, "utf8"), mode: 0o755 }]);
+const eocdOffset = installerZip.length - 22;
+assert.strictEqual(installerZip.readUInt32LE(eocdOffset), 0x06054b50);
+assert.strictEqual(installerZip.readUInt16LE(eocdOffset + 8), 1);
+const centralOffset = installerZip.readUInt32LE(eocdOffset + 16);
+assert.strictEqual(installerZip.readUInt32LE(centralOffset), 0x02014b50);
+// version made by の上位バイトが 3 (UNIX) でないと、展開側がモードを見ない。
+assert.strictEqual(installerZip.readUInt16LE(centralOffset + 4) >>> 8, 3);
+assert.strictEqual(installerZip.readUInt32LE(centralOffset + 38) >>> 16, 0o100755);
+const zipNameLength = installerZip.readUInt16LE(centralOffset + 28);
+assert.strictEqual(installerZip.slice(centralOffset + 46, centralOffset + 46 + zipNameLength).toString(), MACOS_INSTALLER_NAME);
+// 無圧縮なので、格納したバイト列がそのまま入っている。
+assert(installerZip.includes(Buffer.from(macInstaller, "utf8")));
+console.log("  Studio plugin installers OK");
 
 // --- Asset map / manifest prefer the resolved image id ---
 console.log("Testing image id propagation into asset map and manifest...");

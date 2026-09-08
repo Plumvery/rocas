@@ -328,6 +328,20 @@ rocas plugin
 > [!NOTE]
 > Studio はローカルプラグインとして `.luau` ファイルを認識しないため、デフォルトでは生成した `.rbxm` を Roblox Studio のローカル Plugins フォルダに直接書き込みます。別の場所に出力したい場合は `--output <path>` を指定してください。`.lua` と `.rbxmx` の出力パスにも対応しています。
 
+### npm を使わずにプラグインだけ入れる
+
+チームのアーティストやデザイナーが欲しいのは大抵ブラウザのほうで、CLI ではありません。各[リリース](https://github.com/Plumvery/rocas/releases/latest)に、ダブルクリックで入るインストーラーを添付しています。
+
+| ファイル | 対象 | 実行の仕方 |
+| --- | --- | --- |
+| `rocas-plugin-installer-windows.cmd` | Windows | ダブルクリック。「発行元を確認できませんでした」と出るので **実行** を選ぶ。 |
+| `rocas-plugin-installer-macos.zip` | macOS | 展開して、中の `.command` を**右クリック → 開く → 開く**。素のダブルクリックは拒否されます（macOS が、登録済み開発者の署名が無いダウンロード済みスクリプトを止めるため）。 |
+| `rocas-studio-plugin.rbxm` | 共通 | プラグイン本体。自分で Plugins フォルダへ置きたい場合はこちら。 |
+
+どちらのインストーラーも `.rbxm` を base64 で自分の中に抱えていて、`rocas plugin` と同じ場所へ書きます — Windows は `%LOCALAPPDATA%\Roblox\Plugins`、macOS は `~/Documents/Roblox/Plugins`。それ以外は何も入れず、他のフォルダも触らず、通信も一切しません。実行後に Studio を再起動してください。
+
+プラグインは静的なので、リリースから取ったコピーはプラグイン自体が変わるまで正しいままです。変わったときに新しいリリースを取り直してください。
+
 ### 同期済みアセットの閲覧
 
 事前に焼く必要はありません。プラグインは `rocas sync` が生成するバインディングモジュール（Rojo や Argon が既に `ReplicatedStorage` へ同期しているもの）を読みます。変数名がアセットの種類を示し（`images` → Decal、`sounds` → Audio、`animations` → Animation、`maps` → Model）、ネストしたキーがそのままアセットのパスになります。

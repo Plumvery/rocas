@@ -330,6 +330,20 @@ The plugin is static — you never need to regenerate it when assets change.
 > [!NOTE]
 > By default rocas writes the generated `.rbxm` directly into your Roblox Studio local Plugins folder, because Studio does not recognize `.luau` files there as local plugins. Use `--output <path>` to write it elsewhere; `.lua` and `.rbxmx` output paths are also supported.
 
+### Installing the plugin without npm
+
+Artists and designers on the team usually want the browser, not the CLI. Every [release](https://github.com/Plumvery/rocas/releases/latest) carries a double-click installer for them:
+
+| File | Platform | How to run it |
+| --- | --- | --- |
+| `rocas-plugin-installer-windows.cmd` | Windows | Double-click it. Windows says the publisher could not be verified — choose **Run**. |
+| `rocas-plugin-installer-macos.zip` | macOS | Unzip, then **right-click → Open → Open** on the `.command` inside. A plain double-click is refused, because macOS blocks downloaded scripts that are not signed by a registered developer. |
+| `rocas-studio-plugin.rbxm` | either | The plugin itself, if you would rather drop it into the Plugins folder by hand. |
+
+Both installers carry the `.rbxm` inside them as base64 and write it to the same place `rocas plugin` would — `%LOCALAPPDATA%\Roblox\Plugins` on Windows, `~/Documents/Roblox/Plugins` on macOS. They install nothing else, touch no other folder, and never reach the network. Restart Studio afterwards.
+
+The plugin is static, so a copy taken from a release stays correct until the plugin itself changes. Grab the newest release when it does.
+
 ### Browsing synced assets
 
 Nothing to bake. The plugin reads the binding modules `rocas sync` generates, which Rojo or Argon already syncs into `ReplicatedStorage`. The module's variable name gives the asset type (`images` → Decal, `sounds` → Audio, `animations` → Animation, `maps` → Model) and the nested keys give each asset's path.
