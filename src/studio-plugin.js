@@ -710,29 +710,6 @@ local function readScriptSource(instance)
 	return nil
 end
 
-local function assetSearchTokens(asset)
-	local tokens = {}
-	local seen = {}
-	local assetId = currentAssetId(asset)
-
-	local function addToken(value)
-		local token = tostring(value or "")
-		if token ~= "" and not seen[token] then
-			seen[token] = true
-			table.insert(tokens, token)
-		end
-	end
-
-	addToken(assetId)
-	addToken(numericAssetId(assetId))
-	addToken(asset.path)
-	addToken(tostring(asset.path or ""):gsub("%.[^%.]+$", ""))
-	addToken(asset.name)
-	addToken(tostring(asset.name or ""):gsub("%.[^%.]+$", ""))
-
-	return tokens
-end
-
 local function ensureFolder(parent, folderName)
 	local existing = parent:FindFirstChild(folderName)
 	if existing and existing:IsA("Folder") then
@@ -1069,9 +1046,14 @@ local function rebuildUsage()
 
 	for index, asset in ipairs(assets) do
 		keysByAsset[index] = assetKey(asset)
-		for _, token in ipairs(assetSearchTokens(asset)) do
-			indexToken(token, index)
-		end
+
+		-- Only the numeric id and the leaf name. Indexing every word of every
+		-- token turned "rbxassetid" and path parts like "ReplicatedStorage" or
+		-- "maps" into tokens shared by every asset, so a row counted any script
+		-- that merely mentioned those words and almost every row reported the
+		-- same inflated number.
+		indexToken(numericAssetId(currentAssetId(asset)), index)
+		indexToken(string.gsub(tostring(asset.name or ""), "%.[^%.]+$", ""), index)
 	end
 
 	for scriptInstance in pairs(watchedScripts) do
@@ -1710,15 +1692,22 @@ local function createRow(asset, index, depth, label)
 		thumbnail.ScaleType = Enum.ScaleType.Crop
 		thumbnail.Parent = preview
 
-		-- Once the image is actually up, drop the type initial so it does not
-		-- show through a transparent thumbnail. The colored square stays as the
-		-- backdrop either way, and the initial comes back if the image fails.
-		local function syncTypeInitial()
-			typeInitial.Visible = not thumbnail.IsLoaded
-		end
+		-- Drop the type initial once the image is actually up, so it does not
+		-- show through a transparent thumbnail. IsLoaded flips to true within a
+		-- frame or two but raises no property-changed signal -- measured, the
+		-- signal never fires -- so this polls rather than listening. The initial
+		-- stays put if the image never loads.
+		task.spawn(function()
+			local waited = 0
+			while not thumbnail.IsLoaded and waited < 5 and thumbnail.Parent do
+				task.wait(0.1)
+				waited = waited + 0.1
+			end
 
-		syncTypeInitial()
-		thumbnail:GetPropertyChangedSignal("IsLoaded"):Connect(syncTypeInitial)
+			if thumbnail.Parent and thumbnail.IsLoaded then
+				typeInitial.Visible = false
+			end
+		end)
 	end
 
 	if asset.assetType == "Audio" and isAssetReady(asset) then
