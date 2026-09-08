@@ -10,6 +10,10 @@ on:
 
 jobs:
   publish:
+    # プレリリースは npm へ出さない。npm には dist-tag が無いまま latest として
+    # 載ってしまうし、そもそも rc を試すのはインストーラーの添付のほうだから。
+    # プレリリースでは installer ジョブだけが走る。
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-latest
 
     permissions:
