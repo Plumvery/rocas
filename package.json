@@ -1,6 +1,6 @@
 {
   "name": "@plumvery/rocas",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Roblox Open Cloud Asset Sync",
   "main": "src/index.js",
   "bin": {
