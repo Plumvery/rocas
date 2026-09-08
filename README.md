@@ -346,8 +346,8 @@ Each row's preview square shows:
 
 | Type | Preview |
 |---|---|
-| Decal | the image itself |
-| Model, Animation | Roblox's thumbnail (`rbxthumb://type=Asset`) |
+| Image | the image itself |
+| Model | Roblox's thumbnail (`rbxthumb://type=Asset`) |
 | Audio | a play/stop button — click to preview the sound in Studio |
 | anything else | a colored square with the type initial |
 

@@ -344,8 +344,8 @@ rocas plugin
 
 | 種類 | プレビュー |
 |---|---|
-| Decal | 画像そのもの |
-| Model・Animation | Roblox 側のサムネイル (`rbxthumb://type=Asset`) |
+| Image | 画像そのもの |
+| Model | Roblox 側のサムネイル (`rbxthumb://type=Asset`) |
 | Audio | 再生／停止ボタン。押すと Studio 上で試聴できます |
 | その他 | 種類の色 + 頭文字 |
 

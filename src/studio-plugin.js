@@ -335,14 +335,15 @@ local widgetInfo = DockWidgetPluginGuiInfo.new(
 	Enum.InitialDockState.Right,
 	false,
 	true,
-	380,
-	560,
-	320,
-	360
+	300,
+	460,
+	200,
+	220
 )
 
 local widget = plugin:CreateDockWidgetPluginGui("rocasAssetBrowser", widgetInfo)
-widget.Title = "rocas Assets"`;
+widget.Title = "rocas Assets"
+widget.ZIndexBehavior = Enum.ZIndexBehavior.Sibling`;
 
 // 本体。単体版とモジュール版で全く同じものを埋め込む。widget と toggleButton
 // だけを外から受け取り、最後に後片付け用の関数を返す。
@@ -363,39 +364,68 @@ root.BackgroundColor3 = Color3.fromRGB(24, 26, 30)
 root.BorderSizePixel = 0
 root.Parent = widget
 
+local ROW_GAP = 6
+
 local rootPadding = Instance.new("UIPadding")
-rootPadding.PaddingTop = UDim.new(0, 12)
-rootPadding.PaddingRight = UDim.new(0, 12)
-rootPadding.PaddingBottom = UDim.new(0, 12)
-rootPadding.PaddingLeft = UDim.new(0, 12)
+rootPadding.PaddingTop = UDim.new(0, 8)
+rootPadding.PaddingRight = UDim.new(0, 8)
+rootPadding.PaddingBottom = UDim.new(0, 8)
+rootPadding.PaddingLeft = UDim.new(0, 8)
 rootPadding.Parent = root
 
 local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Padding = UDim.new(0, 8)
+layout.Padding = UDim.new(0, ROW_GAP)
 layout.Parent = root
+
+local headerRow = Instance.new("Frame")
+headerRow.Name = "HeaderRow"
+headerRow.LayoutOrder = 1
+headerRow.Size = UDim2.new(1, 0, 0, 18)
+headerRow.BackgroundTransparency = 1
+headerRow.Parent = root
 
 local header = Instance.new("TextLabel")
 header.Name = "Header"
-header.LayoutOrder = 1
-header.Size = UDim2.new(1, 0, 0, 24)
+header.Size = UDim2.new(1, -26, 1, 0)
 header.BackgroundTransparency = 1
 header.Font = Enum.Font.GothamBold
 header.Text = "rocas Assets"
 header.TextColor3 = Color3.fromRGB(244, 246, 248)
-header.TextSize = 18
+header.TextSize = 12
 header.TextXAlignment = Enum.TextXAlignment.Left
-header.Parent = root
+header.Parent = headerRow
+
+-- Search and the type filters live behind this button so the window itself
+-- stays compact. ASCII only: rbxm-parser corrupts non-ASCII in Script.Source.
+local menuButton = Instance.new("TextButton")
+menuButton.Name = "Menu"
+menuButton.AnchorPoint = Vector2.new(1, 0)
+menuButton.Position = UDim2.new(1, 0, 0, 0)
+menuButton.Size = UDim2.fromOffset(24, 18)
+menuButton.BackgroundColor3 = Color3.fromRGB(38, 41, 48)
+menuButton.BorderSizePixel = 0
+menuButton.Font = Enum.Font.GothamBold
+menuButton.Text = "..."
+menuButton.TextColor3 = Color3.fromRGB(214, 220, 228)
+menuButton.TextSize = 12
+menuButton.Parent = headerRow
+
+local menuButtonCorner = Instance.new("UICorner")
+menuButtonCorner.CornerRadius = UDim.new(0, 4)
+menuButtonCorner.Parent = menuButton
 
 local generatedAt = Instance.new("TextLabel")
 generatedAt.Name = "GeneratedAt"
 generatedAt.LayoutOrder = 2
-generatedAt.Size = UDim2.new(1, 0, 0, 18)
+generatedAt.Size = UDim2.new(1, 0, 0, 0)
 generatedAt.BackgroundTransparency = 1
 generatedAt.Font = Enum.Font.Gotham
-generatedAt.Text = "Manifest not loaded"
+generatedAt.Text = ""
+generatedAt.Visible = false
 generatedAt.TextColor3 = Color3.fromRGB(150, 156, 166)
-generatedAt.TextSize = 11
+generatedAt.TextSize = 10
+generatedAt.TextWrapped = true
 generatedAt.TextTruncate = Enum.TextTruncate.AtEnd
 generatedAt.TextXAlignment = Enum.TextXAlignment.Left
 generatedAt.Parent = root
@@ -403,7 +433,7 @@ generatedAt.Parent = root
 local localActions = Instance.new("Frame")
 localActions.Name = "LocalActions"
 localActions.LayoutOrder = 3
-localActions.Size = localMode and UDim2.new(1, 0, 0, 30) or UDim2.new(1, 0, 0, 0)
+localActions.Size = localMode and UDim2.new(1, 0, 0, 26) or UDim2.new(1, 0, 0, 0)
 localActions.BackgroundTransparency = 1
 localActions.Visible = localMode
 localActions.Parent = root
@@ -443,11 +473,49 @@ localModeLabel.TextTruncate = Enum.TextTruncate.AtEnd
 localModeLabel.TextXAlignment = Enum.TextXAlignment.Left
 localModeLabel.Parent = localActions
 
+-- Everything that is not the list itself lives in this popup, anchored under
+-- the "..." button. It is a sibling of root rather than a child so the list
+-- layout does not reserve space for it.
+local MENU_Z = 20
+
+local menuPanel = Instance.new("Frame")
+menuPanel.Name = "MenuPanel"
+menuPanel.AnchorPoint = Vector2.new(1, 0)
+menuPanel.Position = UDim2.new(1, -8, 0, 30)
+menuPanel.Size = UDim2.fromOffset(248, 102)
+menuPanel.BackgroundColor3 = Color3.fromRGB(34, 37, 44)
+menuPanel.BorderSizePixel = 0
+menuPanel.Visible = false
+menuPanel.ZIndex = MENU_Z
+menuPanel.Parent = widget
+
+local menuCorner = Instance.new("UICorner")
+menuCorner.CornerRadius = UDim.new(0, 6)
+menuCorner.Parent = menuPanel
+
+local menuStroke = Instance.new("UIStroke")
+menuStroke.Color = Color3.fromRGB(58, 63, 72)
+menuStroke.Thickness = 1
+menuStroke.Parent = menuPanel
+
+local menuPadding = Instance.new("UIPadding")
+menuPadding.PaddingTop = UDim.new(0, 8)
+menuPadding.PaddingRight = UDim.new(0, 8)
+menuPadding.PaddingBottom = UDim.new(0, 8)
+menuPadding.PaddingLeft = UDim.new(0, 8)
+menuPadding.Parent = menuPanel
+
+local menuLayout = Instance.new("UIListLayout")
+menuLayout.SortOrder = Enum.SortOrder.LayoutOrder
+menuLayout.Padding = UDim.new(0, 6)
+menuLayout.Parent = menuPanel
+
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "Search"
-searchBox.LayoutOrder = 4
-searchBox.Size = UDim2.new(1, 0, 0, 34)
-searchBox.BackgroundColor3 = Color3.fromRGB(35, 38, 44)
+searchBox.LayoutOrder = 1
+searchBox.ZIndex = MENU_Z + 1
+searchBox.Size = UDim2.new(1, 0, 0, 26)
+searchBox.BackgroundColor3 = Color3.fromRGB(24, 26, 31)
 searchBox.BorderSizePixel = 0
 searchBox.ClearTextOnFocus = false
 searchBox.Font = Enum.Font.Gotham
@@ -455,36 +523,41 @@ searchBox.PlaceholderText = "Search"
 searchBox.PlaceholderColor3 = Color3.fromRGB(125, 132, 144)
 searchBox.Text = ""
 searchBox.TextColor3 = Color3.fromRGB(238, 241, 245)
-searchBox.TextSize = 14
+searchBox.TextSize = 12
 searchBox.TextXAlignment = Enum.TextXAlignment.Left
-searchBox.Parent = root
+searchBox.Parent = menuPanel
 
 local searchPadding = Instance.new("UIPadding")
-searchPadding.PaddingLeft = UDim.new(0, 10)
-searchPadding.PaddingRight = UDim.new(0, 10)
+searchPadding.PaddingLeft = UDim.new(0, 8)
+searchPadding.PaddingRight = UDim.new(0, 8)
 searchPadding.Parent = searchBox
 
 local searchCorner = Instance.new("UICorner")
-searchCorner.CornerRadius = UDim.new(0, 6)
+searchCorner.CornerRadius = UDim.new(0, 4)
 searchCorner.Parent = searchBox
 
 local filters = Instance.new("Frame")
 filters.Name = "Filters"
-filters.LayoutOrder = 5
-filters.Size = UDim2.new(1, 0, 0, 28)
+filters.LayoutOrder = 2
+filters.ZIndex = MENU_Z + 1
+filters.Size = UDim2.new(1, 0, 0, 50)
 filters.BackgroundTransparency = 1
-filters.Parent = root
+filters.Parent = menuPanel
 
-local filterLayout = Instance.new("UIListLayout")
-filterLayout.FillDirection = Enum.FillDirection.Horizontal
+menuButton.MouseButton1Click:Connect(function()
+	menuPanel.Visible = not menuPanel.Visible
+end)
+
+local filterLayout = Instance.new("UIGridLayout")
+filterLayout.CellSize = UDim2.fromOffset(72, 22)
+filterLayout.CellPadding = UDim2.fromOffset(6, 6)
 filterLayout.SortOrder = Enum.SortOrder.LayoutOrder
-filterLayout.Padding = UDim.new(0, 6)
 filterLayout.Parent = filters
 
 local list = Instance.new("ScrollingFrame")
 list.Name = "AssetList"
 list.LayoutOrder = 6
-list.Size = localMode and UDim2.new(1, 0, 1, -202) or UDim2.new(1, 0, 1, -164)
+list.Size = UDim2.new(1, 0, 1, -64)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.CanvasSize = UDim2.fromOffset(0, 0)
@@ -494,21 +567,36 @@ list.Parent = root
 
 local listLayout = Instance.new("UIListLayout")
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 8)
+listLayout.Padding = UDim.new(0, 4)
 listLayout.Parent = list
 
 local status = Instance.new("TextLabel")
 status.Name = "Status"
 status.LayoutOrder = 7
-status.Size = UDim2.new(1, 0, 0, 20)
+status.Size = UDim2.new(1, 0, 0, 14)
 status.BackgroundTransparency = 1
 status.Font = Enum.Font.Gotham
 status.Text = ""
 status.TextColor3 = Color3.fromRGB(158, 165, 176)
-status.TextSize = 12
+status.TextSize = 10
 status.TextTruncate = Enum.TextTruncate.AtEnd
 status.TextXAlignment = Enum.TextXAlignment.Left
 status.Parent = root
+
+-- Derive the list height from the rows actually around it, so tweaking any of
+-- their heights does not leave a stale magic number here. Every root child
+-- takes part in the layout, so the gap count is fixed even when localActions
+-- collapses to zero height.
+local function updateListSize()
+	local reserved = headerRow.Size.Y.Offset
+		+ generatedAt.Size.Y.Offset
+		+ localActions.Size.Y.Offset
+		+ status.Size.Y.Offset
+		+ ROW_GAP * 4
+	list.Size = UDim2.new(1, 0, 1, -reserved)
+end
+
+updateListSize()
 
 local selectedType = "All"
 local filterButtons = {}
@@ -520,6 +608,17 @@ local filterValues = {
 	{ label = "Anim", value = "Animation", width = 42 },
 	{ label = "Video", value = "Video", width = 48 },
 }
+
+-- rocas resolves an image group's id to the image inside the decal, not to the
+-- decal itself, so labelling such a row "Decal" would misdescribe the id shown
+-- next to it. The type filter already calls it "Image"; match that here.
+local typeLabels = {
+	Decal = "Image",
+}
+
+local function assetTypeLabel(assetType)
+	return typeLabels[assetType] or tostring(assetType or "Unknown")
+end
 
 local typeColors = {
 	Decal = Color3.fromRGB(54, 141, 214),
@@ -929,6 +1028,7 @@ local function matchesFilter(asset)
 		tostring(asset.name or ""),
 		tostring(currentAssetId(asset) or ""),
 		tostring(asset.assetType or ""),
+		assetTypeLabel(asset.assetType),
 	}, " "))
 
 	return string.find(haystack, query, 1, true) ~= nil
@@ -1321,18 +1421,23 @@ local function applyManifest(nextManifest, sourceModule)
 	rebuildLocalAssetIndex()
 
 	localActions.Visible = localMode
-	localActions.Size = localMode and UDim2.new(1, 0, 0, 30) or UDim2.new(1, 0, 0, 0)
-	list.Size = localMode and UDim2.new(1, 0, 1, -202) or UDim2.new(1, 0, 1, -164)
+	localActions.Size = localMode and UDim2.new(1, 0, 0, 26) or UDim2.new(1, 0, 0, 0)
 
-	if sourceModule then
-		generatedAt.Text = "Manifest: " .. tostring(manifest.mode or "uploaded") .. " / " .. sourceModule:GetFullName()
-	elseif bindingModules > 0 then
-		generatedAt.Text = tostring(bindingModules) .. " rocas binding module(s) in ReplicatedStorage"
-	elseif unreadable > 0 then
-		generatedAt.Text = "Could not read " .. tostring(unreadable) .. " ModuleScript(s). Allow this plugin's script injection permission, then reopen this window."
-	else
-		generatedAt.Text = "No rocas binding modules found in ReplicatedStorage. Run: rocas sync"
+	-- Only worth a line when something is wrong; a healthy scan says nothing so
+	-- the window stays compact.
+	local notice = nil
+	if #assets == 0 then
+		if unreadable > 0 then
+			notice = "Could not read " .. tostring(unreadable) .. " ModuleScript(s). Allow this plugin's script injection permission, then reopen this window."
+		else
+			notice = "No rocas binding modules found in ReplicatedStorage. Run: rocas sync"
+		end
 	end
+
+	generatedAt.Text = notice or ""
+	generatedAt.Visible = notice ~= nil
+	generatedAt.Size = notice and UDim2.new(1, 0, 0, 28) or UDim2.new(1, 0, 0, 0)
+	updateListSize()
 
 	scheduleUsageScan()
 	if renderList then
@@ -1405,40 +1510,46 @@ local function clearRows()
 end
 
 local expandedFolders = {}
-local previewSound = nil
-local previewSoundKey = nil
+local previewToken = 0
+local previewHolder = nil
+local previewKey = nil
 local previewOnChanged = nil
 
-local function stopPreviewSound()
-	if previewSound then
+local function stopPreviewSound(notify)
+	-- Bumping the token orphans any in-flight load for the previous preview.
+	previewToken = previewToken + 1
+
+	if previewHolder then
 		pcall(function()
-			previewSound:Stop()
-			previewSound:Destroy()
+			previewHolder:Destroy()
 		end)
 	end
 
-	previewSound = nil
-	previewSoundKey = nil
+	previewHolder = nil
+	previewKey = nil
+
+	local callback = previewOnChanged
+	previewOnChanged = nil
+	if notify and callback then
+		pcall(callback, false)
+	end
 end
 
--- Audio preview. A Sound only loads once it has a parent, so it goes under
--- CoreGui, which is not saved with the place and so does not dirty it.
--- SoundService:PlayLocalSound leaves IsPlaying false, so Play is used instead.
-local function togglePreviewSound(asset, onChanged)
+-- Audio preview.
+--
+-- The old Sound API does not work here: in Edit mode a Sound's playback never
+-- advances (TimePosition stays at 0, Ended never fires), and
+-- SoundService:PlayLocalSound plays an unreachable *copy*. AudioPlayer does
+-- advance in Edit mode -- measured -- and can be stopped, so the play/stop
+-- button can mean what it says. It needs an AudioDeviceOutput wired to it to
+-- reach the speakers. All three live in a folder under CoreGui, which is not
+-- saved with the place and so does not dirty it.
+local function previewAsset(asset, onChanged)
 	local key = assetKey(asset)
-	local wasPlaying = previewSoundKey == key
-	local previousChanged = previewOnChanged
+	local wasPlaying = previewKey == key
 
-	stopPreviewSound()
-	if previousChanged then
-		pcall(previousChanged, false)
-	end
-	previewOnChanged = nil
-
+	stopPreviewSound(true)
 	if wasPlaying then
-		if onChanged then
-			onChanged(false)
-		end
 		return
 	end
 
@@ -1447,33 +1558,72 @@ local function togglePreviewSound(asset, onChanged)
 		return
 	end
 
-	local sound = Instance.new("Sound")
-	sound.Name = "rocasPreview"
-	sound.SoundId = tostring(assetId)
-	sound.Volume = 0.5
-	sound.Parent = CoreGui
+	local ok, err = pcall(function()
+		local holder = Instance.new("Folder")
+		holder.Name = "rocasPreview"
+		holder.Parent = CoreGui
 
-	previewSound = sound
-	previewSoundKey = key
-	previewOnChanged = onChanged
+		local player = Instance.new("AudioPlayer")
+		player.Asset = tostring(assetId)
+		player.Volume = 0.6
+		player.Parent = holder
 
-	sound.Ended:Connect(function()
-		if previewSoundKey == key then
-			stopPreviewSound()
-			previewOnChanged = nil
-			if onChanged then
-				onChanged(false)
+		local output = Instance.new("AudioDeviceOutput")
+		output.Parent = holder
+
+		local wire = Instance.new("Wire")
+		wire.SourceInstance = player
+		wire.TargetInstance = output
+		wire.Parent = holder
+
+		previewHolder = holder
+		previewKey = key
+		previewOnChanged = onChanged
+
+		local token = previewToken
+
+		task.spawn(function()
+			local waited = 0
+			while not player.IsReady and waited < 5 do
+				task.wait(0.1)
+				waited = waited + 0.1
 			end
-		end
+
+			if token ~= previewToken then
+				return
+			end
+
+			if not player.IsReady then
+				setStatus("Could not load audio " .. tostring(assetId), true)
+				stopPreviewSound(true)
+				return
+			end
+
+			player:Play()
+
+			task.delay(player.TimeLength + 0.1, function()
+				if token == previewToken then
+					stopPreviewSound(true)
+				end
+			end)
+		end)
 	end)
 
-	sound:Play()
+	if not ok then
+		setStatus("Audio preview failed: " .. tostring(err), true)
+		stopPreviewSound(true)
+		return
+	end
+
 	if onChanged then
 		onChanged(true)
 	end
 end
 
-local THUMBNAIL_ASSET_TYPES = { Model = true, Animation = true }
+-- Animation assets only return a generic icon, so fetching a thumbnail for
+-- them adds a request and shows nothing useful. Model is the only type whose
+-- thumbnail is worth having.
+local THUMBNAIL_ASSET_TYPES = { Model = true }
 
 local function thumbnailImageFor(asset)
 	if not isAssetReady(asset) then
@@ -1505,7 +1655,7 @@ local function createRow(asset, index, depth, label)
 	local container = Instance.new("Frame")
 	container.Name = "AssetRow"
 	container.LayoutOrder = index
-	container.Size = UDim2.new(1, -8, 0, 88)
+	container.Size = UDim2.new(1, -8, 0, 46)
 	container.BackgroundTransparency = 1
 	container.BorderSizePixel = 0
 	container.Parent = list
@@ -1519,20 +1669,20 @@ local function createRow(asset, index, depth, label)
 	row.Parent = container
 
 	local rowCorner = Instance.new("UICorner")
-	rowCorner.CornerRadius = UDim.new(0, 6)
+	rowCorner.CornerRadius = UDim.new(0, 4)
 	rowCorner.Parent = row
 
 	local preview = Instance.new("Frame")
 	preview.Name = "Preview"
-	preview.Position = UDim2.fromOffset(10, 10)
-	preview.Size = UDim2.fromOffset(56, 56)
+	preview.Position = UDim2.fromOffset(7, 7)
+	preview.Size = UDim2.fromOffset(32, 32)
 	preview.BackgroundColor3 = typeColors[asset.assetType] or typeColors.Unknown
 	preview.BorderSizePixel = 0
 	preview.ClipsDescendants = true
 	preview.Parent = row
 
 	local previewCorner = Instance.new("UICorner")
-	previewCorner.CornerRadius = UDim.new(0, 6)
+	previewCorner.CornerRadius = UDim.new(0, 4)
 	previewCorner.Parent = preview
 
 	-- The colored square with the type initial stays underneath the thumbnail,
@@ -1544,9 +1694,9 @@ local function createRow(asset, index, depth, label)
 	typeInitial.ZIndex = 1
 	typeInitial.BackgroundTransparency = 1
 	typeInitial.Font = Enum.Font.GothamBold
-	typeInitial.Text = string.sub(tostring(asset.assetType or "?"), 1, 1)
+	typeInitial.Text = string.sub(assetTypeLabel(asset.assetType), 1, 1)
 	typeInitial.TextColor3 = Color3.fromRGB(255, 255, 255)
-	typeInitial.TextSize = 22
+	typeInitial.TextSize = 14
 	typeInitial.Parent = preview
 
 	local thumbnailImage = thumbnailImageFor(asset)
@@ -1559,6 +1709,16 @@ local function createRow(asset, index, depth, label)
 		thumbnail.Image = thumbnailImage
 		thumbnail.ScaleType = Enum.ScaleType.Crop
 		thumbnail.Parent = preview
+
+		-- Once the image is actually up, drop the type initial so it does not
+		-- show through a transparent thumbnail. The colored square stays as the
+		-- backdrop either way, and the initial comes back if the image fails.
+		local function syncTypeInitial()
+			typeInitial.Visible = not thumbnail.IsLoaded
+		end
+
+		syncTypeInitial()
+		thumbnail:GetPropertyChangedSignal("IsLoaded"):Connect(syncTypeInitial)
 	end
 
 	if asset.assetType == "Audio" and isAssetReady(asset) then
@@ -1566,7 +1726,7 @@ local function createRow(asset, index, depth, label)
 		playButton.Name = "Preview"
 		playButton.AnchorPoint = Vector2.new(0.5, 0.5)
 		playButton.Position = UDim2.fromScale(0.5, 0.5)
-		playButton.Size = UDim2.fromOffset(28, 28)
+		playButton.Size = UDim2.fromOffset(20, 20)
 		playButton.ZIndex = 3
 		playButton.BackgroundColor3 = Color3.fromRGB(16, 18, 22)
 		playButton.BackgroundTransparency = 0.2
@@ -1574,9 +1734,9 @@ local function createRow(asset, index, depth, label)
 		playButton.AutoButtonColor = true
 		playButton.Font = Enum.Font.GothamBold
 		-- ASCII only: rbxm-parser corrupts non-ASCII inside Script.Source.
-		playButton.Text = previewSoundKey == assetKey(asset) and "II" or ">"
+		playButton.Text = previewKey == assetKey(asset) and "II" or ">"
 		playButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-		playButton.TextSize = 13
+		playButton.TextSize = 10
 		playButton.Parent = preview
 
 		local playCorner = Instance.new("UICorner")
@@ -1584,44 +1744,91 @@ local function createRow(asset, index, depth, label)
 		playCorner.Parent = playButton
 
 		playButton.MouseButton1Click:Connect(function()
-			togglePreviewSound(asset, function(playing)
+			previewAsset(asset, function(playing)
 				if playButton.Parent then
+					-- ASCII only: rbxm-parser corrupts non-ASCII in Script.Source.
 					playButton.Text = playing and "II" or ">"
 				end
 			end)
 		end)
 	end
 
+	local usageCount = usageByAssetKey[assetKey(asset)] or 0
+
+	-- Name, then the type badge beside it. A horizontal layout with
+	-- AutomaticSize keeps the badge hugging the end of the name whatever its
+	-- length; the row clips so a long name cannot push the badge out of view.
+	local titleRow = Instance.new("Frame")
+	titleRow.Name = "TitleRow"
+	titleRow.Position = UDim2.fromOffset(46, 4)
+	titleRow.Size = UDim2.new(1, -116, 0, 16)
+	titleRow.BackgroundTransparency = 1
+	titleRow.ClipsDescendants = true
+	titleRow.Parent = row
+
+	local titleLayout = Instance.new("UIListLayout")
+	titleLayout.FillDirection = Enum.FillDirection.Horizontal
+	titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	titleLayout.Padding = UDim.new(0, 6)
+	titleLayout.Parent = titleRow
+
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"
-	title.Position = UDim2.fromOffset(76, 9)
-	title.Size = UDim2.new(1, -152, 0, 20)
+	title.LayoutOrder = 1
+	title.AutomaticSize = Enum.AutomaticSize.X
+	title.Size = UDim2.new(0, 0, 1, 0)
 	title.BackgroundTransparency = 1
 	title.Font = Enum.Font.GothamBold
 	title.Text = tostring(label or asset.name or asset.path or "Asset")
 	title.TextColor3 = Color3.fromRGB(242, 245, 248)
-	title.TextSize = 13
-	title.TextTruncate = Enum.TextTruncate.AtEnd
+	title.TextSize = 12
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Parent = row
+	title.Parent = titleRow
 
-	local meta = Instance.new("TextLabel")
-	meta.Name = "Meta"
-	meta.Position = UDim2.fromOffset(76, 31)
-	meta.Size = UDim2.new(1, -152, 0, 17)
-	meta.BackgroundTransparency = 1
-	meta.Font = Enum.Font.Gotham
-	meta.Text = tostring(asset.group or "") .. " / " .. tostring(asset.path or "") .. " | Used in " .. tostring(usageByAssetKey[assetKey(asset)] or 0)
-	meta.TextColor3 = Color3.fromRGB(156, 164, 176)
-	meta.TextSize = 11
-	meta.TextTruncate = Enum.TextTruncate.AtEnd
-	meta.TextXAlignment = Enum.TextXAlignment.Left
-	meta.Parent = row
+	local titleConstraint = Instance.new("UISizeConstraint")
+	titleConstraint.MaxSize = Vector2.new(210, math.huge)
+	titleConstraint.Parent = title
+
+	local typeBadge = Instance.new("TextLabel")
+	typeBadge.Name = "Type"
+	typeBadge.LayoutOrder = 2
+	typeBadge.AutomaticSize = Enum.AutomaticSize.X
+	typeBadge.Size = UDim2.new(0, 0, 0, 14)
+	typeBadge.BackgroundColor3 = typeColors[asset.assetType] or typeColors.Unknown
+	typeBadge.BorderSizePixel = 0
+	typeBadge.Font = Enum.Font.GothamBold
+	typeBadge.Text = assetTypeLabel(asset.assetType)
+	typeBadge.TextColor3 = Color3.fromRGB(255, 255, 255)
+	typeBadge.TextSize = 9
+	typeBadge.Parent = titleRow
+
+	local typeBadgePadding = Instance.new("UIPadding")
+	typeBadgePadding.PaddingLeft = UDim.new(0, 5)
+	typeBadgePadding.PaddingRight = UDim.new(0, 5)
+	typeBadgePadding.Parent = typeBadge
+
+	local typeBadgeCorner = Instance.new("UICorner")
+	typeBadgeCorner.CornerRadius = UDim.new(0, 3)
+	typeBadgeCorner.Parent = typeBadge
+
+	local usageLabel = Instance.new("TextLabel")
+	usageLabel.Name = "Usage"
+	usageLabel.LayoutOrder = 3
+	usageLabel.AutomaticSize = Enum.AutomaticSize.X
+	usageLabel.Size = UDim2.new(0, 0, 1, 0)
+	usageLabel.BackgroundTransparency = 1
+	usageLabel.Font = Enum.Font.Gotham
+	usageLabel.Text = "(used " .. tostring(usageCount) .. ")"
+	usageLabel.TextColor3 = Color3.fromRGB(118, 126, 138)
+	usageLabel.TextSize = 10
+	usageLabel.TextXAlignment = Enum.TextXAlignment.Left
+	usageLabel.Parent = titleRow
 
 	local assetId = Instance.new("TextBox")
 	assetId.Name = "AssetId"
-	assetId.Position = UDim2.fromOffset(76, 52)
-	assetId.Size = UDim2.new(1, -152, 0, 22)
+	assetId.Position = UDim2.fromOffset(46, 22)
+	assetId.Size = UDim2.new(1, -116, 0, 18)
 	assetId.BackgroundColor3 = Color3.fromRGB(23, 25, 30)
 	assetId.BorderSizePixel = 0
 	assetId.ClearTextOnFocus = false
@@ -1643,33 +1850,17 @@ local function createRow(asset, index, depth, label)
 	assetIdCorner.CornerRadius = UDim.new(0, 4)
 	assetIdCorner.Parent = assetId
 
-	local typeBadge = Instance.new("TextLabel")
-	typeBadge.Name = "Type"
-	typeBadge.Position = UDim2.new(1, -68, 0, 10)
-	typeBadge.Size = UDim2.fromOffset(58, 22)
-	typeBadge.BackgroundColor3 = typeColors[asset.assetType] or typeColors.Unknown
-	typeBadge.BorderSizePixel = 0
-	typeBadge.Font = Enum.Font.GothamBold
-	typeBadge.Text = tostring(asset.assetType or "Unknown")
-	typeBadge.TextColor3 = Color3.fromRGB(255, 255, 255)
-	typeBadge.TextSize = 10
-	typeBadge.TextTruncate = Enum.TextTruncate.AtEnd
-	typeBadge.Parent = row
-
-	local badgeCorner = Instance.new("UICorner")
-	badgeCorner.CornerRadius = UDim.new(0, 4)
-	badgeCorner.Parent = typeBadge
-
 	local insertButton = Instance.new("TextButton")
 	insertButton.Name = "Insert"
-	insertButton.Position = UDim2.new(1, -68, 1, -34)
-	insertButton.Size = UDim2.fromOffset(58, 24)
+	insertButton.AnchorPoint = Vector2.new(1, 0.5)
+	insertButton.Position = UDim2.new(1, -8, 0.5, 0)
+	insertButton.Size = UDim2.fromOffset(56, 22)
 	insertButton.BackgroundColor3 = Color3.fromRGB(232, 236, 242)
 	insertButton.BorderSizePixel = 0
 	insertButton.Font = Enum.Font.GothamBold
 	insertButton.Text = localMode and not isAssetReady(asset) and "Load" or "Insert"
 	insertButton.TextColor3 = Color3.fromRGB(20, 22, 25)
-	insertButton.TextSize = 12
+	insertButton.TextSize = 11
 	insertButton.Parent = row
 
 	local insertCorner = Instance.new("UICorner")
@@ -1869,7 +2060,8 @@ for index, filter in ipairs(filterValues) do
 	local button = Instance.new("TextButton")
 	button.Name = value
 	button.LayoutOrder = index
-	button.Size = UDim2.fromOffset(filter.width, 28)
+	button.Size = UDim2.fromOffset(filter.width, 22)
+	button.ZIndex = MENU_Z + 2
 	button.BackgroundColor3 = Color3.fromRGB(35, 38, 44)
 	button.BorderSizePixel = 0
 	button.Font = Enum.Font.GothamBold
@@ -1916,7 +2108,7 @@ reloadManifest()
 -- Disconnect everything and remove the UI. The loader calls this before it
 -- mounts a newer copy of this module, so a reload leaves nothing behind.
 local function cleanup()
-	stopPreviewSound()
+	stopPreviewSound(false)
 
 	for _, connection in ipairs(pluginConnections) do
 		pcall(function()
@@ -1980,10 +2172,10 @@ local widgetInfo = DockWidgetPluginGuiInfo.new(
 	Enum.InitialDockState.Right,
 	false,
 	true,
-	380,
-	560,
-	320,
-	360
+	300,
+	460,
+	200,
+	220
 )
 
 local widget = plugin:CreateDockWidgetPluginGui("rocasAssetBrowser", widgetInfo)
